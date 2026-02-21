@@ -1,0 +1,59 @@
+@use 'variables' as *;
+
+.kpi-bar {
+  display: flex;
+  gap: 10px;
+  padding: 10px 20px;
+  overflow-x: auto;
+  flex-shrink: 0;
+  background: $bg-principal;
+
+  &::-webkit-scrollbar { height: 4px; }
+  &::-webkit-scrollbar-thumb { background: $borda; border-radius: 2px; }
+}
+
+.kpi-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: $bg-card;
+  border: 1px solid $borda;
+  border-radius: $raio-borda;
+  min-width: 140px;
+  flex: 1;
+  cursor: pointer;
+  transition: border-color 0.3s, background 0.2s;
+
+  &:hover {
+    background: $bg-card-hover;
+  }
+
+  &.verde    { border-left: 3px solid $cor-verde; }
+  &.amarelo  { border-left: 3px solid $cor-amarelo; }
+  &.azul     { border-left: 3px solid $cor-azul-claro; }
+  &.vermelho { border-left: 3px solid $marca-vermelho; }
+  &.cinza    { border-left: 3px solid $cor-cinza; }
+}
+
+.kpi-icone {
+  font-size: 1.5rem;
+}
+
+.kpi-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.kpi-valor {
+  font-size: $fonte-kpi;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.kpi-label {
+  font-size: 0.75rem;
+  color: $texto-secundario;
+  white-space: nowrap;
+}

@@ -1,0 +1,30 @@
+{
+  "name": "painel-frotas",
+  "version": "3.0.0",
+  "description": "Painel de monitoramento de frota - Integração Trucks Control v6.7",
+  "scripts": {
+    "dev:server": "node --watch server.js",
+    "dev:client": "vite",
+    "build": "vite build",
+    "start": "node server.js",
+    "preview": "vite build && node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "compression": "^1.7.4",
+    "node-fetch": "^2.7.0",
+    "xml2js": "^0.6.2",
+    "adm-zip": "^0.5.16",
+    "dotenv": "^16.4.5",
+    "cors": "^2.8.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "leaflet": "^1.9.4",
+    "react-leaflet": "^4.2.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.14",
+    "sass": "^1.83.0"
+  }
+}

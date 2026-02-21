@@ -1,0 +1,380 @@
+@use 'variables' as *;
+
+// ─── Tablet ────────────────────────────────────────────────────
+@media (max-width: 1400px) {
+  .mapa-painel { width: 280px; min-width: 280px; }
+  .insights-row-3 { flex-wrap: wrap; }
+}
+
+@media (max-width: 1024px) {
+  .mapa-layout { flex-direction: column; }
+  .mapa-painel { width: 100%; min-width: 0; max-height: 300px; border-left: none; border-top: 1px solid $borda; }
+  .insights-row { flex-direction: column; }
+  .kpi-bar { flex-wrap: wrap; }
+  .header { flex-wrap: wrap; height: auto; gap: 8px; }
+}
+
+// ─── Mobile ────────────────────────────────────────────────────
+@media (max-width: 768px) {
+
+  // Header compacto
+  .header {
+    padding: 6px 10px;
+    height: auto;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .logo-img { height: 24px; }
+  .logo-texto { font-size: 0.8rem; }
+  .logo-divider { height: 20px; }
+
+  .header-esquerda { gap: 8px; }
+
+  .alerta-badge-header {
+    font-size: 0.72rem;
+    padding: 3px 8px;
+  }
+
+  .header-abas {
+    order: 3;
+    width: 100%;
+    gap: 6px;
+
+    button {
+      flex: 1;
+      padding: 10px 8px;
+      font-size: 0.9rem;
+      text-align: center;
+      border-radius: 8px;
+      font-weight: 600;
+    }
+  }
+
+  .header-direita { gap: 8px; }
+  .auto-ciclo { display: none; }
+  .relogio { font-size: 0.95rem; }
+  .atualizacao { font-size: 0.6rem; }
+
+  // KPIs: faixa horizontal compacta (uma linha, scroll)
+  .kpi-bar {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0;
+    padding: 0;
+    overflow-x: auto;
+    background: $bg-card;
+    border-bottom: 1px solid $borda;
+  }
+
+  .kpi-card {
+    min-width: 0;
+    flex: 1;
+    padding: 6px 4px;
+    gap: 4px;
+    border-radius: 0;
+    border: none;
+    border-left: none;
+    border-right: 1px solid rgba($borda, 0.5);
+    background: transparent;
+    justify-content: center;
+
+    &.verde, &.amarelo, &.azul, &.vermelho, &.cinza {
+      border-left: none;
+    }
+
+    &:last-child { border-right: none; }
+  }
+
+  .kpi-icone { display: none; }
+
+  .kpi-info { align-items: center; }
+
+  .kpi-valor { font-size: 1rem; line-height: 1; }
+  .kpi-label { font-size: 0.55rem; text-align: center; }
+
+  // Conteúdo
+  .conteudo { min-height: 0; }
+
+  // Mapa: ocupa toda a área
+  .mapa-layout { flex-direction: column; }
+
+  .mapa-container {
+    flex: 1;
+    min-height: 50vh;
+  }
+
+  .mapa-painel {
+    width: 100%;
+    min-width: 0;
+    max-height: 40vh;
+    border-left: none;
+    border-top: 1px solid $borda;
+  }
+
+  .mapa-legenda {
+    gap: 6px;
+    padding: 4px 8px;
+    font-size: 0.65rem;
+    bottom: 8px;
+    left: 8px;
+  }
+
+  .mapa-stats {
+    font-size: 0.7rem;
+    padding: 4px 8px;
+    top: 8px;
+    left: 8px;
+  }
+
+  .marcador-placa { font-size: 0.6rem; padding: 1px 4px; }
+  .marcador-veiculo { width: 24px; height: 24px; font-size: 13px; }
+
+  // ═══ Tabela → Cards no mobile ═══
+  .tabela-container { padding: 6px 8px; overflow-y: auto; }
+
+  // Esconde tabela desktop no mobile
+  .desk-only { display: none !important; }
+
+  // Filtros mobile: empilhados, input em destaque
+  .tabela-filtros {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+    overflow: visible;
+
+    input {
+      width: 100%;
+      flex: 1 1 100%;
+      font-size: 0.88rem;
+      padding: 10px 12px;
+      border-radius: 10px;
+      order: -1;           // input sempre primeiro
+    }
+  }
+
+  .filtro-btn {
+    white-space: nowrap;
+    padding: 7px 12px;
+    font-size: 0.74rem;
+    border-radius: 20px;
+    flex: 0 0 auto;
+  }
+
+  .filtro-contador {
+    font-size: 0.72rem;
+    white-space: nowrap;
+    margin-left: auto;
+    align-self: center;
+  }
+
+  // Lista de cards mobile
+  .mob-lista {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .mob-card {
+    background: $bg-card;
+    border: 1px solid $borda;
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: box-shadow 0.15s;
+
+    &.mob-critico { border-left: 3px solid $cor-vermelho; }
+    &.mob-aberto { box-shadow: 0 2px 12px rgba(0,0,0,0.25); }
+  }
+
+  .mob-resumo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .mob-placa {
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.92rem;
+    color: $cor-azul-claro;
+    white-space: nowrap;
+  }
+
+  .mob-status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .mob-local {
+    flex: 1;
+    font-size: 0.72rem;
+    color: $texto-secundario;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mob-vel {
+    font-size: 0.78rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .mob-alerta-badge {
+    background: rgba($cor-vermelho, 0.15);
+    color: $cor-vermelho;
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 8px;
+    white-space: nowrap;
+  }
+
+  .mob-chevron {
+    font-size: 0.6rem;
+    color: $texto-secundario;
+    flex-shrink: 0;
+  }
+
+  .mob-detalhe {
+    border-top: 1px solid $borda;
+    padding: 10px 12px;
+    background: rgba($bg-card, 0.7);
+  }
+
+  .mob-detalhe-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 12px;
+  }
+
+  .mob-campo {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+
+    &:nth-last-child(-n+2) {
+      grid-column: 1 / -1;
+    }
+  }
+
+  .mob-campo-label {
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: $texto-secundario;
+    font-weight: 600;
+  }
+
+  .mob-campo span:not(.mob-campo-label) {
+    font-size: 0.82rem;
+  }
+
+  .mob-alertas {
+    margin-top: 10px;
+    border-top: 1px solid $borda;
+    padding-top: 8px;
+
+    .alerta-expandido-item {
+      font-size: 0.75rem;
+      padding: 4px 8px;
+      margin-top: 4px;
+      border-left: 3px solid;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.03);
+    }
+  }
+
+  // Ignição badges no mobile card
+  .ign-on { color: $cor-verde; font-weight: 600; }
+  .ign-off { color: $texto-secundario; }
+
+  // ═══ Insights mini-cards → faixa horizontal (como KPIs) ═══
+  .insights-container { padding: 8px 10px; gap: 10px; }
+
+  .indicadores-row {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0;
+    padding: 0;
+    overflow-x: auto;
+    background: $bg-card;
+    border: 1px solid $borda;
+    border-radius: 10px;
+  }
+
+  .insight-mini-card {
+    min-width: 0;
+    flex: 1;
+    padding: 6px 4px;
+    gap: 2px;
+    border-radius: 0;
+    border: none;
+    border-right: 1px solid rgba($borda, 0.5);
+    background: transparent;
+    align-items: center;
+    justify-content: center;
+
+    &:last-child { border-right: none; }
+  }
+
+  .mini-icone { display: none; }
+  .mini-valor { font-size: 1rem; line-height: 1; }
+  .mini-label { font-size: 0.52rem; text-align: center; }
+
+  .insights-row { flex-direction: column; gap: 10px; }
+
+  .insight-card {
+    padding: 12px;
+    h3 { font-size: 0.88rem; margin-bottom: 8px; }
+  }
+
+  .alerta-severity-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+  }
+
+  .sev-valor { font-size: 1.2rem; }
+  .sev-label { font-size: 0.6rem; }
+
+  .vel-item { font-size: 0.72rem; gap: 6px; }
+  .odo-item { font-size: 0.72rem; }
+  .desperdicio-item { font-size: 0.7rem; }
+
+  // Popup do mapa
+  .leaflet-popup-content-wrapper { border-radius: 8px !important; }
+  .popup-body { font-size: 0.75rem; }
+  .popup-placa { font-size: 0.9rem; }
+}
+
+// ─── Mobile pequeno ────────────────────────────────────────────
+@media (max-width: 480px) {
+  .header-abas button { font-size: 0.82rem; padding: 9px 6px; }
+  .logo-texto { display: none; }
+  .logo-divider { display: none; }
+
+  .kpi-valor { font-size: 0.9rem; }
+  .kpi-label { font-size: 0.5rem; }
+
+  .mapa-container { min-height: 40vh; }
+
+  // Filtros menores em tela pequena
+  .tabela-filtros input { font-size: 0.82rem; padding: 9px 10px; }
+  .filtro-btn { padding: 5px 9px; font-size: 0.68rem; }
+
+  // Cards mobile menores
+  .mob-resumo { padding: 8px 10px; gap: 6px; }
+  .mob-placa { font-size: 0.85rem; }
+  .mob-local { font-size: 0.65rem; }
+  .mob-vel { font-size: 0.72rem; }
+  .mob-detalhe-grid { gap: 6px 8px; }
+
+  // Mini-cards insights
+  .mini-valor { font-size: 0.88rem; }
+  .mini-label { font-size: 0.48rem; }
+}

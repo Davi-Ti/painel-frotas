@@ -1,0 +1,300 @@
+@use 'variables' as *;
+
+.tabela-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 12px 16px;
+}
+
+// Mobile card list — hide on desktop
+.mob-lista {
+  display: none;
+}
+
+// Filtros
+.tabela-filtros {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+
+  input {
+    padding: 7px 14px;
+    background: $bg-input;
+    color: $texto-primario;
+    border: 1px solid $borda;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    min-width: 300px;
+    outline: none;
+
+    &:focus {
+      border-color: $marca-azul;
+      box-shadow: 0 0 0 2px rgba($marca-azul, 0.25);
+    }
+
+    &::placeholder {
+      color: $texto-muted;
+    }
+  }
+}
+
+.filtro-btn {
+  padding: 5px 12px;
+  background: $bg-input;
+  color: $texto-secundario;
+  border: 1px solid $borda;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.2s;
+  white-space: nowrap;
+
+  &:hover {
+    color: $texto-primario;
+    background: $bg-card-hover;
+  }
+
+  &.ativo {
+    background: $marca-azul;
+    color: #fff;
+    border-color: $marca-azul;
+  }
+}
+
+.filtro-contador {
+  color: $texto-muted;
+  font-size: 0.8rem;
+  margin-left: auto;
+}
+
+.tabela-scroll {
+  flex: 1;
+  overflow: auto;
+  border-radius: $raio-borda;
+  border: 1px solid $borda;
+
+  &::-webkit-scrollbar { width: 6px; height: 6px; }
+  &::-webkit-scrollbar-thumb { background: $borda; border-radius: 3px; }
+}
+
+// Larguras vêm do <colgroup> no JSX — não é necessário nth-child aqui.
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  table-layout: fixed;
+}
+
+thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+
+  th {
+    background: $bg-card;
+    color: $texto-muted;
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    padding: 6px 6px;
+    text-align: left;
+    border-bottom: 1px solid $borda;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.th-km {
+  background: rgba($cor-azul-claro, 0.08) !important;
+  color: $cor-azul-claro !important;
+}
+
+tbody {
+  tr {
+    border-bottom: 1px solid rgba($borda, 0.5);
+    cursor: pointer;
+    transition: background 0.15s;
+
+    &:hover {
+      background: $bg-card-hover;
+    }
+  }
+
+  td {
+    padding: 5px 6px;
+    vertical-align: middle;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+// Linhas com alerta
+.tr-critico {
+  background: rgba($cor-vermelho, 0.05);
+}
+
+.tr-alerta {
+  border-left: 3px solid $cor-amarelo;
+}
+
+.tr-critico.tr-alerta {
+  border-left: 3px solid $cor-vermelho;
+}
+
+// ─── Células ───────────────────────────────────────────────────
+
+.td-placa {
+  font-weight: 700;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+.td-bloqueado {
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+.bloq-sim {
+  opacity: 1;
+}
+
+.bloq-nao {
+  opacity: 0.35;
+}
+
+.badge-status {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.td-motorista {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.td-local {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.td-rodovia {
+  display: block;
+  font-size: 0.65rem;
+  color: $texto-muted;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.td-vel {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.td-km {
+  font-variant-numeric: tabular-nums;
+  background: rgba($cor-azul-claro, 0.04);
+
+  strong {
+    color: $cor-azul-claro;
+    font-size: 0.8rem;
+  }
+}
+
+.td-ignicao {
+  white-space: nowrap;
+  font-size: 0.75rem;
+}
+
+.ign-on  { color: $cor-verde; font-weight: 600; }
+.ign-off { color: $cor-vermelho; font-weight: 600; }
+.ign-na  { color: $texto-muted; }
+
+.td-rpm {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+}
+
+.td-temp {
+  font-size: 0.75rem;
+  white-space: nowrap;
+  color: $texto-secundario;
+}
+
+.td-carreta {
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: $texto-secundario;
+}
+
+.td-alertas {
+  position: relative;
+}
+
+.alertas-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.alerta-count {
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 700;
+
+  &.critico { background: rgba($cor-vermelho, 0.15); color: $cor-vermelho; }
+  &.alto    { background: rgba(#f97316, 0.15); color: #f97316; }
+  &.medio   { background: rgba($cor-amarelo, 0.15); color: $cor-amarelo; }
+}
+
+.alertas-expandido {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+}
+
+.alerta-expandido-item {
+  padding: 4px 8px;
+  background: $bg-input;
+  border-left: 3px solid;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  color: $texto-secundario;
+}
+
+.td-atualizacao {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.tempo-atras {
+  display: block;
+  font-size: 0.68rem;
+  color: $texto-muted;
+}
+
+.td-vazio {
+  text-align: center;
+  padding: 40px !important;
+  color: $texto-muted;
+}

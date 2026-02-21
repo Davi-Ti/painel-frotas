@@ -1,0 +1,10 @@
+node_modules
+.cache-frota.json
+.env
+.git
+.gitignore
+*.md
+HelpIntegracao*.txt
+server.old.js
+server.new.js
+dist
