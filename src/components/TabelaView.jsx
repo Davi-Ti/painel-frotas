@@ -113,14 +113,14 @@ const COLUNAS = [
       return temps.length === 0 ? '—' : temps.map(formatarTemp).join(' / ');
     },
   },
-  {
-    key: 'carreta',
-    label: 'Carreta',
-    width: '40px',
-    className: 'td-carreta mobile-hide',
-    thClass: 'mobile-hide',
-    render: (v) => v.carreta || '—',
-  },
+  // {
+  //   key: 'carreta',
+  //   label: 'Carreta',
+  //   width: '40px',
+  //   className: 'td-carreta mobile-hide',
+  //   thClass: 'mobile-hide',
+  //   render: (v) => v.carreta || '—',
+  // },
   {
     key: 'alertas',
     label: 'Alertas',
