@@ -8,7 +8,7 @@
 }
 
 html {
-  font-size: $fonte-base;
+  font-size: clamp($fonte-base, 0.8vw + 6px, 30px);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

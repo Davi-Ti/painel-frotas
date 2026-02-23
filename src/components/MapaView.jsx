@@ -45,8 +45,8 @@ function criarIcone(cor, placa, temAlerta) {
         <div class="marcador-veiculo" style="background:${cor}">🚛</div>
         ${texto ? `<span class="marcador-placa" style="border-color:${cor}">${temAlerta ? '⚠️' : ''}${texto}</span>` : ''}
       </div>`,
-    iconSize: [140, 32],
-    iconAnchor: [16, 16],
+    iconSize: [180, 40],
+    iconAnchor: [20, 20],
     popupAnchor: [0, -18],
   });
 }

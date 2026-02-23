@@ -1,0 +1,1035 @@
+@use 'variables' as *;
+
+// ═══════════════════════════════════════════════════════════════
+//  TV GRANDE (65" 4K) — 2560px+  e  3840px+
+//  Escala tudo proporcionalmente para boa legibilidade à distância
+// ═══════════════════════════════════════════════════════════════
+
+// ─── Tela Grande (2K / 1440p+) ────────────────────────────────
+@media (min-width: 2560px) {
+
+  html {
+    font-size: 20px;
+  }
+
+  // ── Header ──
+  .header {
+    padding: 12px 32px;
+    height: 76px;
+    border-bottom-width: 3px;
+  }
+
+  .logo-img {
+    height: 48px;
+  }
+
+  .logo-texto {
+    font-size: 1.1rem;
+  }
+
+  .logo-divider {
+    height: 36px;
+  }
+
+  .alerta-badge-header {
+    font-size: 1rem;
+    padding: 6px 16px;
+    border-radius: 24px;
+  }
+
+  .header-abas button {
+    padding: 8px 24px;
+    font-size: 1rem;
+    border-radius: 8px;
+  }
+
+  .relogio {
+    font-size: 1.4rem;
+  }
+
+  .atualizacao {
+    font-size: 0.8rem;
+  }
+
+  .auto-ciclo {
+    font-size: 0.9rem;
+    gap: 8px;
+
+    input {
+      width: 18px;
+      height: 18px;
+    }
+  }
+
+  // ── KPIs ──
+  .kpi-bar {
+    gap: 14px;
+    padding: 14px 32px;
+  }
+
+  .kpi-card {
+    gap: 14px;
+    padding: 14px 22px;
+    min-width: 180px;
+    border-radius: 12px;
+
+    &.verde    { border-left-width: 4px; }
+    &.amarelo  { border-left-width: 4px; }
+    &.azul     { border-left-width: 4px; }
+    &.vermelho { border-left-width: 4px; }
+    &.cinza    { border-left-width: 4px; }
+  }
+
+  .kpi-icone {
+    font-size: 2rem;
+  }
+
+  .kpi-valor {
+    font-size: 2.4rem;
+  }
+
+  .kpi-label {
+    font-size: 0.85rem;
+  }
+
+  // ── Mapa ──
+  .mapa-painel {
+    width: 420px;
+    min-width: 420px;
+  }
+
+  .mapa-legenda {
+    gap: 16px;
+    padding: 8px 16px;
+    font-size: 0.85rem;
+    border-radius: 8px;
+    bottom: 20px;
+    left: 20px;
+  }
+
+  .bolinha {
+    width: 13px;
+    height: 13px;
+  }
+
+  .mapa-stats {
+    font-size: 0.95rem;
+    padding: 8px 16px;
+    border-radius: 8px;
+    top: 20px;
+    left: 20px;
+  }
+
+  .marcador-veiculo {
+    width: 38px;
+    height: 38px;
+    font-size: 20px;
+    border-width: 3px;
+  }
+
+  .marcador-placa {
+    font-size: 0.8rem;
+    padding: 3px 8px;
+    border-radius: 5px;
+  }
+
+  // Painel lateral mapa
+  .painel-alertas {
+    padding: 18px;
+    gap: 12px;
+
+    h3 { font-size: 1.15rem; }
+  }
+
+  .painel-alertas-contagem {
+    gap: 10px;
+  }
+
+  .contagem-item {
+    padding: 5px 14px;
+    font-size: 0.85rem;
+    border-radius: 16px;
+  }
+
+  .alerta-item {
+    padding: 10px 14px;
+    border-radius: 8px;
+    border-left-width: 4px;
+  }
+
+  .alerta-placa {
+    font-size: 1rem;
+  }
+
+  .alerta-sev-badge {
+    padding: 2px 10px;
+    font-size: 0.75rem;
+  }
+
+  .alerta-item-desc {
+    font-size: 0.9rem;
+  }
+
+  .alerta-item-local {
+    font-size: 0.8rem;
+  }
+
+  .painel-detalhe {
+    padding: 18px;
+    gap: 12px;
+  }
+
+  .painel-campo {
+    label { font-size: 0.78rem; }
+    span  { font-size: 1rem; }
+  }
+
+  .badge-status-lg {
+    font-size: 0.9rem;
+    padding: 5px 16px;
+  }
+
+  // Popup do mapa
+  .popup-placa { font-size: 1.15rem; }
+  .popup-body { font-size: 0.9rem; }
+  .popup-status { font-size: 0.8rem; padding: 3px 10px; }
+
+  // ── Tabela ──
+  .tabela-container {
+    padding: 16px 24px;
+  }
+
+  .tabela-filtros {
+    gap: 10px;
+    margin-bottom: 14px;
+
+    input {
+      padding: 10px 18px;
+      font-size: 0.95rem;
+      min-width: 380px;
+      border-radius: 8px;
+    }
+  }
+
+  .filtro-btn {
+    padding: 8px 18px;
+    font-size: 0.9rem;
+    border-radius: 8px;
+  }
+
+  .filtro-contador {
+    font-size: 0.9rem;
+  }
+
+  .tabela-scroll {
+    border-radius: 12px;
+  }
+
+  table {
+    font-size: 0.9rem;
+  }
+
+  thead th {
+    padding: 10px 10px;
+    font-size: 0.78rem;
+    letter-spacing: 0.6px;
+  }
+
+  tbody td {
+    padding: 10px 10px;
+  }
+
+  .td-placa {
+    font-size: 1rem;
+  }
+
+  .badge-status {
+    padding: 3px 10px;
+    font-size: 0.78rem;
+    border-radius: 5px;
+  }
+
+  .td-vel {
+    font-size: 0.95rem;
+  }
+
+  .td-km strong {
+    font-size: 0.9rem;
+  }
+
+  .td-ignicao {
+    font-size: 0.85rem;
+  }
+
+  .td-atualizacao {
+    font-size: 0.85rem;
+  }
+
+  .tempo-atras {
+    font-size: 0.75rem;
+  }
+
+  .alerta-count {
+    padding: 2px 8px;
+    font-size: 0.8rem;
+  }
+
+  // ── Insights ──
+  .insights-container {
+    padding: 16px 24px;
+    gap: 18px;
+  }
+
+  .indicadores-row {
+    gap: 14px;
+  }
+
+  .insight-mini-card {
+    padding: 16px 18px;
+    min-width: 160px;
+    border-radius: 12px;
+  }
+
+  .mini-valor {
+    font-size: 2rem;
+
+    small { font-size: 0.85rem; }
+  }
+
+  .mini-label {
+    font-size: 0.82rem;
+    margin-top: 4px;
+  }
+
+  .insight-card {
+    padding: 20px;
+    border-radius: 12px;
+
+    h3 { font-size: 1.15rem; margin-bottom: 14px; }
+    h4 { font-size: 0.92rem; }
+  }
+
+  .insights-row {
+    gap: 18px;
+  }
+
+  // Severity grid
+  .alerta-severity-grid {
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .sev-card {
+    padding: 14px 8px;
+    border-radius: 10px;
+  }
+
+  .sev-valor {
+    font-size: 2rem;
+  }
+
+  .sev-label {
+    font-size: 0.78rem;
+  }
+
+  // Alertas tipo
+  .alerta-tipo-item {
+    gap: 10px;
+    padding: 6px 0;
+    font-size: 0.9rem;
+  }
+
+  .alerta-tipo-icone {
+    font-size: 1.2rem;
+  }
+
+  // Utilização
+  .util-barra-container {
+    height: 36px;
+    border-radius: 8px;
+  }
+
+  .util-legenda {
+    gap: 14px;
+  }
+
+  .util-item {
+    font-size: 0.85rem;
+    gap: 6px;
+  }
+
+  .dot {
+    width: 10px;
+    height: 10px;
+  }
+
+  // UF bars
+  .uf-bar-row { gap: 10px; }
+  .uf-label { font-size: 0.9rem; width: 34px; }
+  .uf-bar-track { height: 20px; border-radius: 4px; }
+  .uf-count { font-size: 0.9rem; width: 28px; }
+
+  // Velocidade
+  .vel-item {
+    font-size: 0.92rem;
+    gap: 12px;
+    padding: 7px 0;
+  }
+
+  .vel-pos { width: 28px; }
+  .vel-placa { min-width: 96px; }
+  .vel-valor { min-width: 80px; }
+
+  .insight-summary {
+    font-size: 0.92rem;
+    gap: 20px;
+  }
+
+  // Odômetro
+  .odo-lista { max-height: 280px; }
+  .odo-item { font-size: 0.9rem; gap: 10px; padding: 6px 0; }
+  .odo-placa { min-width: 88px; }
+
+  // Desperdício
+  .desperdicio-item { font-size: 0.88rem; gap: 10px; padding: 5px 0; }
+  .desp-placa { min-width: 88px; }
+
+  .insight-subtitle {
+    font-size: 0.92rem;
+    margin-top: 16px;
+    padding-top: 12px;
+  }
+}
+
+// ─── TV 4K (3840px+) ──────────────────────────────────────────
+@media (min-width: 3200px) {
+
+  html {
+    font-size: 26px;
+  }
+
+  // ── Header ──
+  .header {
+    padding: 16px 44px;
+    height: 96px;
+    border-bottom-width: 4px;
+  }
+
+  .header-esquerda {
+    gap: 24px;
+  }
+
+  .logo-img {
+    height: 60px;
+  }
+
+  .logo-texto {
+    font-size: 1.2rem;
+  }
+
+  .logo-divider {
+    height: 44px;
+    width: 2px;
+  }
+
+  .alerta-badge-header {
+    font-size: 1.1rem;
+    padding: 8px 20px;
+    border-radius: 28px;
+    border-width: 2px;
+  }
+
+  .header-abas {
+    gap: 8px;
+
+    button {
+      padding: 10px 32px;
+      font-size: 1.1rem;
+      border-radius: 10px;
+      border-width: 2px;
+    }
+  }
+
+  .header-direita {
+    gap: 24px;
+  }
+
+  .relogio {
+    font-size: 1.6rem;
+  }
+
+  .atualizacao {
+    font-size: 0.85rem;
+  }
+
+  .auto-ciclo {
+    font-size: 1rem;
+    gap: 10px;
+
+    input {
+      width: 22px;
+      height: 22px;
+    }
+  }
+
+  // ── KPIs ──
+  .kpi-bar {
+    gap: 18px;
+    padding: 18px 44px;
+  }
+
+  .kpi-card {
+    gap: 18px;
+    padding: 18px 28px;
+    min-width: 220px;
+    border-radius: 14px;
+
+    &.verde    { border-left-width: 5px; }
+    &.amarelo  { border-left-width: 5px; }
+    &.azul     { border-left-width: 5px; }
+    &.vermelho { border-left-width: 5px; }
+    &.cinza    { border-left-width: 5px; }
+  }
+
+  .kpi-icone {
+    font-size: 2.4rem;
+  }
+
+  .kpi-valor {
+    font-size: 2.8rem;
+  }
+
+  .kpi-label {
+    font-size: 0.9rem;
+  }
+
+  // ── Mapa ──
+  .mapa-painel {
+    width: 540px;
+    min-width: 540px;
+  }
+
+  .mapa-legenda {
+    gap: 20px;
+    padding: 10px 20px;
+    font-size: 0.92rem;
+    border-radius: 10px;
+    bottom: 24px;
+    left: 24px;
+  }
+
+  .bolinha {
+    width: 16px;
+    height: 16px;
+  }
+
+  .mapa-stats {
+    font-size: 1rem;
+    padding: 10px 20px;
+    border-radius: 10px;
+    top: 24px;
+    left: 24px;
+  }
+
+  .marcador-veiculo {
+    width: 46px;
+    height: 46px;
+    font-size: 24px;
+    border-width: 3px;
+  }
+
+  .marcador-placa {
+    font-size: 0.88rem;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border-width: 2px;
+  }
+
+  // Painel lateral
+  .painel-alertas {
+    padding: 22px;
+    gap: 14px;
+
+    h3 { font-size: 1.25rem; }
+  }
+
+  .painel-alertas-contagem {
+    gap: 12px;
+  }
+
+  .contagem-item {
+    padding: 6px 16px;
+    font-size: 0.92rem;
+    border-radius: 18px;
+  }
+
+  .alerta-item {
+    padding: 12px 16px;
+    border-radius: 10px;
+    border-left-width: 5px;
+    margin-bottom: 2px;
+  }
+
+  .alerta-placa {
+    font-size: 1.1rem;
+  }
+
+  .alerta-sev-badge {
+    padding: 3px 12px;
+    font-size: 0.82rem;
+    border-radius: 12px;
+  }
+
+  .alerta-item-desc {
+    font-size: 1rem;
+    margin-top: 2px;
+  }
+
+  .alerta-item-local {
+    font-size: 0.88rem;
+    margin-top: 3px;
+  }
+
+  .painel-detalhe {
+    padding: 22px;
+    gap: 14px;
+  }
+
+  .painel-detalhe-header h3 {
+    font-size: 1.4rem;
+  }
+
+  .btn-fechar {
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+    border-radius: 8px;
+  }
+
+  .painel-campo {
+    gap: 3px;
+    label { font-size: 0.85rem; }
+    span  { font-size: 1.1rem; }
+  }
+
+  .badge-status-lg {
+    font-size: 1rem;
+    padding: 6px 18px;
+    border-radius: 8px;
+  }
+
+  .painel-alertas-detalhe {
+    gap: 8px;
+    label { font-size: 0.85rem; }
+  }
+
+  .alerta-row {
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border-left-width: 4px;
+  }
+
+  .alerta-icone { font-size: 1.2rem; }
+  .alerta-desc { font-size: 0.92rem; }
+  .alerta-sev { font-size: 0.82rem; }
+
+  // Popup
+  .popup-placa { font-size: 1.3rem; }
+  .popup-body { font-size: 1rem; gap: 6px; }
+  .popup-status { font-size: 0.88rem; padding: 4px 12px; }
+  .popup-linha { font-size: 0.95rem; }
+  .popup-alerta-tag { font-size: 0.88rem; }
+
+  .leaflet-popup-content-wrapper {
+    border-radius: 14px !important;
+  }
+
+  .tooltip-veiculo {
+    font-size: 0.92rem !important;
+    padding: 6px 12px !important;
+    border-radius: 8px !important;
+  }
+
+  // ── Tabela ──
+  .tabela-container {
+    padding: 20px 32px;
+  }
+
+  .tabela-filtros {
+    gap: 12px;
+    margin-bottom: 18px;
+
+    input {
+      padding: 12px 22px;
+      font-size: 1.05rem;
+      min-width: 480px;
+      border-radius: 10px;
+    }
+  }
+
+  .filtro-btn {
+    padding: 10px 22px;
+    font-size: 0.95rem;
+    border-radius: 10px;
+  }
+
+  .filtro-contador {
+    font-size: 1rem;
+  }
+
+  .tabela-scroll {
+    border-radius: 14px;
+    border-width: 2px;
+  }
+
+  table {
+    font-size: 1rem;
+  }
+
+  thead th {
+    padding: 12px 12px;
+    font-size: 0.85rem;
+    letter-spacing: 0.8px;
+    border-bottom-width: 2px;
+  }
+
+  tbody {
+    tr {
+      border-bottom-width: 2px;
+    }
+
+    td {
+      padding: 12px 12px;
+    }
+  }
+
+  .td-placa {
+    font-size: 1.1rem;
+  }
+
+  .badge-status {
+    padding: 4px 12px;
+    font-size: 0.85rem;
+    border-radius: 6px;
+  }
+
+  .td-vel {
+    font-size: 1.05rem;
+  }
+
+  .td-km strong {
+    font-size: 1rem;
+  }
+
+  .td-ignicao {
+    font-size: 0.92rem;
+  }
+
+  .td-rpm {
+    font-size: 0.9rem;
+  }
+
+  .td-temp {
+    font-size: 0.88rem;
+  }
+
+  .td-atualizacao {
+    font-size: 0.92rem;
+  }
+
+  .tempo-atras {
+    font-size: 0.82rem;
+  }
+
+  .td-rodovia {
+    font-size: 0.78rem;
+  }
+
+  .alerta-count {
+    padding: 3px 10px;
+    font-size: 0.85rem;
+    border-radius: 12px;
+  }
+
+  .alerta-expandido-item {
+    font-size: 0.88rem;
+    padding: 6px 10px;
+    border-radius: 4px;
+    border-left-width: 4px;
+  }
+
+  .tr-alerta {
+    border-left-width: 4px;
+  }
+
+  .tr-critico.tr-alerta {
+    border-left-width: 4px;
+  }
+
+  // ── Insights ──
+  .insights-container {
+    padding: 22px 32px;
+    gap: 22px;
+  }
+
+  .indicadores-row {
+    gap: 18px;
+  }
+
+  .insight-mini-card {
+    padding: 20px 22px;
+    min-width: 200px;
+    border-radius: 14px;
+    border-width: 2px;
+  }
+
+  .mini-valor {
+    font-size: 2.4rem;
+
+    small { font-size: 0.92rem; }
+  }
+
+  .mini-label {
+    font-size: 0.88rem;
+    margin-top: 4px;
+  }
+
+  .mini-icone {
+    font-size: 1.6rem;
+  }
+
+  .insight-card {
+    padding: 24px;
+    border-radius: 14px;
+    border-width: 2px;
+
+    h3 {
+      font-size: 1.3rem;
+      margin-bottom: 16px;
+    }
+
+    h4 {
+      font-size: 1rem;
+      margin-bottom: 10px;
+    }
+  }
+
+  .insights-row {
+    gap: 22px;
+  }
+
+  // Severity
+  .alerta-severity-grid {
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+
+  .sev-card {
+    padding: 18px 10px;
+    border-radius: 12px;
+    border-width: 2px;
+  }
+
+  .sev-valor {
+    font-size: 2.6rem;
+  }
+
+  .sev-label {
+    font-size: 0.88rem;
+  }
+
+  // Alertas tipo
+  .alerta-tipo-item {
+    gap: 12px;
+    padding: 8px 0;
+    font-size: 1rem;
+  }
+
+  .alerta-tipo-icone {
+    font-size: 1.4rem;
+  }
+
+  // Utilização
+  .utilizacao-chart { gap: 14px; }
+
+  .util-barra-container {
+    height: 42px;
+    border-radius: 10px;
+  }
+
+  .util-legenda {
+    gap: 18px;
+  }
+
+  .util-item {
+    font-size: 0.92rem;
+    gap: 8px;
+  }
+
+  .dot {
+    width: 12px;
+    height: 12px;
+  }
+
+  // UF bars
+  .uf-bars { gap: 7px; }
+  .uf-bar-row { gap: 12px; }
+  .uf-label { font-size: 1rem; width: 40px; }
+  .uf-bar-track { height: 24px; border-radius: 5px; }
+  .uf-count { font-size: 1rem; width: 32px; }
+
+  // Velocidade
+  .vel-lista { gap: 6px; }
+
+  .vel-item {
+    font-size: 1rem;
+    gap: 14px;
+    padding: 8px 0;
+  }
+
+  .vel-pos { width: 32px; font-size: 1rem; }
+  .vel-placa { min-width: 110px; }
+  .vel-valor { min-width: 90px; }
+  .vel-local { font-size: 0.92rem; }
+
+  .insight-summary {
+    font-size: 1rem;
+    gap: 24px;
+    margin-bottom: 14px;
+  }
+
+  .insight-subtitle {
+    font-size: 1rem;
+    margin-top: 20px;
+    padding-top: 14px;
+  }
+
+  // Odômetro
+  .odo-lista {
+    max-height: 340px;
+    gap: 4px;
+  }
+
+  .odo-item {
+    font-size: 0.95rem;
+    gap: 12px;
+    padding: 7px 0;
+  }
+
+  .odo-placa { min-width: 100px; }
+  .odo-tempo { font-size: 0.82rem; }
+  .dot-sm { width: 10px; height: 10px; }
+
+  // Desperdício
+  .desperdicio-lista { gap: 4px; }
+
+  .desperdicio-item {
+    font-size: 0.95rem;
+    gap: 12px;
+    padding: 6px 0;
+  }
+
+  .desp-placa { min-width: 100px; }
+  .desp-tempo { font-size: 0.82rem; }
+
+  .insight-no-data {
+    min-height: 80px;
+    font-size: 1rem;
+  }
+
+  // Scrollbar
+  .insights-container::-webkit-scrollbar { width: 8px; }
+  .odo-lista::-webkit-scrollbar { width: 6px; }
+  .mapa-painel::-webkit-scrollbar { width: 7px; }
+  .painel-alertas-lista::-webkit-scrollbar { width: 7px; }
+  .tabela-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+
+  // Loading
+  .loading-spinner {
+    width: 72px;
+    height: 72px;
+    border-width: 6px;
+  }
+
+  .loading-screen {
+    gap: 24px;
+    font-size: 1.15rem;
+  }
+}
+
+// ─── Ultra-wide 4K (3840px+) ──────────────────────────────────
+@media (min-width: 3800px) {
+
+  html {
+    font-size: 30px;
+  }
+
+  .header {
+    padding: 18px 52px;
+    height: 110px;
+  }
+
+  .logo-img {
+    height: 70px;
+  }
+
+  .kpi-bar {
+    gap: 22px;
+    padding: 22px 52px;
+  }
+
+  .kpi-card {
+    padding: 22px 32px;
+    min-width: 260px;
+  }
+
+  .kpi-valor {
+    font-size: 3.2rem;
+  }
+
+  .kpi-label {
+    font-size: 1rem;
+  }
+
+  .kpi-icone {
+    font-size: 2.8rem;
+  }
+
+  .mapa-painel {
+    width: 640px;
+    min-width: 640px;
+  }
+
+  .marcador-veiculo {
+    width: 54px;
+    height: 54px;
+    font-size: 28px;
+  }
+
+  .marcador-placa {
+    font-size: 0.95rem;
+    padding: 5px 12px;
+  }
+
+  .tabela-container {
+    padding: 24px 40px;
+  }
+
+  .tabela-filtros input {
+    min-width: 560px;
+  }
+
+  .insights-container {
+    padding: 26px 40px;
+    gap: 26px;
+  }
+
+  .sev-valor {
+    font-size: 3rem;
+  }
+
+  .mini-valor {
+    font-size: 2.8rem;
+  }
+}
