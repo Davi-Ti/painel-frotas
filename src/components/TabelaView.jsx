@@ -21,7 +21,7 @@ const COLUNAS = [
   {
     key: 'placa',
     label: 'Placa',
-    width: '50px',
+    width: '80px',
     className: 'td-placa',
     render: (v) => formatarPlaca(v.placa),
   },
@@ -101,19 +101,6 @@ const COLUNAS = [
       if (v.ignicao === false) return <span className="ign-off">● OFF</span>;
       return <span className="ign-na">—</span>;
     },
-  },
-  {
-    key: 'rpm',
-    label: 'RPM',
-    width: '56px',
-    className: 'td-rpm mobile-hide',
-    thClass: 'mobile-hide',
-    render: (v) =>
-      v.rpm != null ? (
-        <span style={{ color: v.rpm > 3000 ? '#ef4444' : v.rpm > 0 ? '#94a3b8' : '#64748b' }}>
-          {v.rpm.toLocaleString('pt-BR')}
-        </span>
-      ) : '—',
   },
   {
     key: 'temp',
