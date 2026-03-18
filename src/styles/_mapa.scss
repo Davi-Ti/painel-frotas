@@ -22,6 +22,64 @@
   }
 }
 
+.mapa-busca {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: rgba($bg-card, 0.92);
+  border: 1px solid $borda;
+  border-radius: 8px;
+  backdrop-filter: blur(6px);
+
+  input {
+    width: 220px;
+    max-width: 45vw;
+    background: rgba($bg-principal, 0.8);
+    color: $texto-primario;
+    border: 1px solid $borda;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 0.82rem;
+
+    &::placeholder {
+      color: $texto-muted;
+    }
+
+    &:focus {
+      outline: none;
+      border-color: $marca-azul;
+      box-shadow: 0 0 0 2px rgba($marca-azul, 0.25);
+    }
+  }
+}
+
+.mapa-busca-contador {
+  font-size: 0.74rem;
+  color: $texto-secundario;
+  white-space: nowrap;
+}
+
+.mapa-busca-limpar {
+  border: 1px solid $borda;
+  border-radius: 6px;
+  background: rgba($bg-principal, 0.8);
+  color: $texto-secundario;
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 5px 8px;
+  cursor: pointer;
+
+  &:hover {
+    color: $texto-primario;
+    background: $bg-card-hover;
+  }
+}
+
 // Legenda flutuante
 .mapa-legenda {
   position: absolute;

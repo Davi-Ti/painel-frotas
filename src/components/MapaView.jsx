@@ -6,24 +6,34 @@ import {
   tempoAtras, corDoStatus, corDoSeverity, labelSeverity,
 } from '../utils/helpers';
 
+function normalizarPlaca(valor = '') {
+  return String(valor).toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
 // Ajusta zoom para caber todos os veículos
-function AutoFitBounds({ posicoes, fitCounter }) {
+function AutoFitBounds({ posicoes, fitCounter, assinatura }) {
   const map = useMap();
-  const qtdRef = useRef(0);
+  const assinaturaRef = useRef('');
   const fitRef = useRef(0);
   const primeiroRef = useRef(true);
 
   useEffect(() => {
     if (posicoes.length === 0) return;
-    if (posicoes.length === qtdRef.current && fitCounter === fitRef.current) return;
+    if (assinatura === assinaturaRef.current && fitCounter === fitRef.current) return;
 
-    qtdRef.current = posicoes.length;
+    assinaturaRef.current = assinatura;
     fitRef.current = fitCounter;
 
     const primeiro = primeiroRef.current;
     primeiroRef.current = false;
 
     const timer = setTimeout(() => {
+      if (posicoes.length === 1) {
+        const unico = posicoes[0];
+        map.setView([unico.lat, unico.lon], 16, { animate: !primeiro, duration: primeiro ? 0 : 0.5 });
+        return;
+      }
+
       const limites = L.latLngBounds(posicoes.map((p) => [p.lat, p.lon]));
       if (limites.isValid()) {
         map.fitBounds(limites, { padding: [40, 40], maxZoom: 14, animate: !primeiro, duration: primeiro ? 0 : 0.5 });
@@ -31,7 +41,7 @@ function AutoFitBounds({ posicoes, fitCounter }) {
     }, primeiro ? 50 : 300);
 
     return () => clearTimeout(timer);
-  }, [posicoes, map, fitCounter]);
+  }, [posicoes, map, fitCounter, assinatura]);
 
   return null;
 }
@@ -53,6 +63,7 @@ function criarIcone(cor, placa, temAlerta) {
 
 export default function MapaView({ veiculos, fitCounter = 0 }) {
   const [selecionado, setSelecionado] = useState(null);
+  const [buscaPlaca, setBuscaPlaca] = useState('');
 
   const noMapa = useMemo(() => {
     return veiculos.filter((v) =>
@@ -60,6 +71,16 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
       v.lat >= -34 && v.lat <= 6 && v.lon >= -74 && v.lon <= -34
     );
   }, [veiculos]);
+
+  const noMapaFiltrado = useMemo(() => {
+    const termo = normalizarPlaca(buscaPlaca);
+    if (!termo) return noMapa;
+    return noMapa.filter((v) => normalizarPlaca(v.placa).includes(termo));
+  }, [noMapa, buscaPlaca]);
+
+  const assinaturaMapa = useMemo(() => {
+    return noMapaFiltrado.map((v) => v.veiID).sort().join('|');
+  }, [noMapaFiltrado]);
 
   const alertas = useMemo(() => {
     const lista = [];
@@ -76,11 +97,24 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
     <div className="mapa-layout">
       {/* === MAPA === */}
       <div className="mapa-container">
+        <div className="mapa-busca">
+          <input
+            type="text"
+            placeholder="Buscar placa no mapa..."
+            value={buscaPlaca}
+            onChange={(e) => setBuscaPlaca(e.target.value)}
+          />
+          <span className="mapa-busca-contador">{noMapaFiltrado.length}/{noMapa.length}</span>
+          {buscaPlaca && (
+            <button className="mapa-busca-limpar" onClick={() => setBuscaPlaca('')}>Limpar</button>
+          )}
+        </div>
+
         <MapContainer center={[-19.5, -51]} zoom={6.4} scrollWheelZoom zoomControl={false} style={{ height: '100%', width: '100%' }}>
           <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution="&copy; CARTO" />
-          <AutoFitBounds posicoes={noMapa} fitCounter={fitCounter} />
+          <AutoFitBounds posicoes={noMapaFiltrado} fitCounter={fitCounter} assinatura={assinaturaMapa} />
 
-          {noMapa.map((v) => (
+          {noMapaFiltrado.map((v) => (
             <Marker key={v.veiID} position={[v.lat, v.lon]} icon={criarIcone(v.statusCor, formatarPlaca(v.placa), v.eventos.length > 0)} eventHandlers={{ click: () => setSelecionado(v.veiID) }}>
               <Tooltip direction="top" offset={[0, -22]} className="tooltip-veiculo">
                 <strong>{formatarPlaca(v.placa)}</strong> — {v.statusTexto}
@@ -120,7 +154,8 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
         </div>
 
         <div className="mapa-stats">
-          <strong>{noMapa.length}</strong> no mapa
+          <strong>{noMapaFiltrado.length}</strong> no mapa
+          {buscaPlaca && noMapaFiltrado.length !== noMapa.length && <> · <span>{noMapa.length} total</span></>}
           {veiculos.length - noMapa.length > 0 && <> · <span className="stat-alerta">{veiculos.length - noMapa.length} sem posição</span></>}
         </div>
       </div>

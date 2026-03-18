@@ -17,9 +17,11 @@ const fs = require('fs');
 // Configuração
 
 const PORT = process.env.PORT || 3001;
-const TC_URL = process.env.TC_URL;
-const TC_LOGIN = process.env.TC_LOGIN;
-const TC_SENHA = process.env.TC_SENHA;
+const TC_URL = (process.env.TC_URL || '').trim();
+const TC_LOGIN = (process.env.TC_LOGIN || '').trim();
+const TC_SENHA = (process.env.TC_SENHA || '').trim();
+const TC_URL_VALIDA = /^https?:\/\//i.test(TC_URL);
+const CREDENCIAIS_API_OK = Boolean(TC_URL_VALIDA && TC_LOGIN && TC_SENHA);
 
 // Intervalos (ms) — respeitando limites da API
 const INTERVALO_MENSAGENS = 35 * 1000;   // API permite 30s min
@@ -727,6 +729,14 @@ async function iniciarPolling() {
   log.info('Polling', 'Iniciando consultas à API Trucks Control...');
 
   carregarCache();
+
+  if (!CREDENCIAIS_API_OK) {
+    log.warn(
+      'Config',
+      'TC_URL/TC_LOGIN/TC_SENHA ausentes ou invalidos no .env. API externa desativada; servindo apenas cache/local.'
+    );
+    return;
+  }
 
   await buscarVeiculos();
   await delay(2000);

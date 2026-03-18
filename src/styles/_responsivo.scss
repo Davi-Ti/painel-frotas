@@ -127,6 +127,24 @@
     left: 8px;
   }
 
+  .mapa-busca {
+    top: 8px;
+    right: 8px;
+    left: auto;
+    gap: 6px;
+    padding: 4px 6px;
+
+    input {
+      width: 150px;
+      max-width: 48vw;
+      font-size: 0.74rem;
+      padding: 5px 8px;
+    }
+  }
+
+  .mapa-busca-contador { font-size: 0.66rem; }
+  .mapa-busca-limpar { font-size: 0.66rem; padding: 4px 7px; }
+
   .marcador-placa { font-size: 0.6rem; padding: 1px 4px; }
   .marcador-veiculo { width: 24px; height: 24px; font-size: 13px; }
 
@@ -362,6 +380,15 @@
   .kpi-label { font-size: 0.5rem; }
 
   .mapa-container { min-height: 40vh; }
+
+  .mapa-busca {
+    width: auto;
+
+    input {
+      width: 130px;
+      max-width: 42vw;
+    }
+  }
 
   // Filtros menores em tela pequena
   .tabela-filtros input { font-size: 0.82rem; padding: 9px 10px; }
