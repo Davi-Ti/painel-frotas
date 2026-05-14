@@ -8,7 +8,7 @@
 # ============================================================
 
 # ---- Stage 1: Build do frontend ----
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -16,7 +16,7 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 
 # Instala pnpm e dependências
-RUN corepack enable && corepack prepare pnpm@latest --activate \
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate \
     && pnpm install --frozen-lockfile
 
 # Copia código-fonte
@@ -27,7 +27,7 @@ RUN pnpm run build
 
 
 # ---- Stage 2: Imagem de produção ----
-FROM node:20-alpine AS production
+FROM node:22-alpine AS production
 
 LABEL maintainer="Painel Frotas"
 LABEL description="Painel de monitoramento de frota - Trucks Control v6.7"
@@ -42,7 +42,7 @@ RUN addgroup -g 1001 -S appgroup \
 COPY package.json pnpm-lock.yaml ./
 
 # Instala somente dependências de produção
-RUN corepack enable && corepack prepare pnpm@latest --activate \
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate \
     && pnpm install --frozen-lockfile --prod \
     && pnpm store prune
 
