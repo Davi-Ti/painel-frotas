@@ -240,16 +240,17 @@
 
 // Painel lateral
 .mapa-painel {
-  width: 320px;
-  min-width: 320px;
-  max-height: 100%;
+  width: 380px;
+  min-width: 280px;
+  height: 100%;
   background: $bg-card;
   border-left: 1px solid $borda;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
 
-  &::-webkit-scrollbar { width: 5px; }
+  &::-webkit-scrollbar { width: 4px; }
   &::-webkit-scrollbar-thumb { background: $borda; border-radius: 3px; }
 }
 

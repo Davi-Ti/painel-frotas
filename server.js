@@ -39,6 +39,37 @@ const log = {
 // Banco de dados em memória + cache em disco
 
 const CACHE_PATH = path.join(__dirname, '.cache-frota.json');
+const PRECOS_CACHE_PATH = path.join(__dirname, '.cache-precos.json');
+
+let precosPostos = {};
+
+function carregarPrecos() {
+  try {
+    if (fs.existsSync(PRECOS_CACHE_PATH)) {
+      precosPostos = JSON.parse(fs.readFileSync(PRECOS_CACHE_PATH, 'utf-8'));
+      log.info('Precos', `${Object.keys(precosPostos).length} preços carregados`);
+    }
+  } catch (err) {
+    log.warn('Precos', `Falha ao carregar: ${err.message}`);
+  }
+}
+
+function salvarPrecos() {
+  try {
+    fs.writeFileSync(PRECOS_CACHE_PATH, JSON.stringify(precosPostos, null, 2));
+  } catch (err) {
+    log.warn('Precos', `Falha ao salvar: ${err.message}`);
+  }
+}
+
+function calcularDistanciaKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 const db = {
   veiculos: {},
@@ -767,6 +798,7 @@ const app = express();
 
 app.use(compression());
 app.use(cors());
+app.use(express.json());
 app.disable('x-powered-by');
 
 app.use((_req, res, next) => {
@@ -774,6 +806,614 @@ app.use((_req, res, next) => {
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   next();
 });
+
+// ── Integração CTF (Cartão de Combustível) ────────────────────────
+
+const CTF_URL_SOAP = 'https://www.portalctf.com.br/portalcopias/wscopia.asmx';
+const CTF_USER = (process.env.CTF_USER || '').trim();
+const CTF_PASS = (process.env.CTF_PASS || '').trim();
+const CTF_GEOCODE_PATH = path.join(__dirname, '.cache-geocode-ctf.json');
+const CTF_GEOCODE_POSTO_PATH = path.join(__dirname, '.cache-geocode-postos.json');
+
+// Mapa de código IBGE UF → sigla
+const IBGE_UF = {
+  11:'RO',12:'AC',13:'AM',14:'RR',15:'PA',16:'AP',17:'TO',
+  21:'MA',22:'PI',23:'CE',24:'RN',25:'PB',26:'PE',27:'AL',28:'SE',29:'BA',
+  31:'MG',32:'ES',33:'RJ',35:'SP',
+  41:'PR',42:'SC',43:'RS',
+  50:'MS',51:'MT',52:'GO',53:'DF',
+};
+
+function normalizarNome(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim();
+}
+
+// Extrai apenas o "logradouro core" para Nominatim (remove KM, números, ruídos)
+function limparEndereco(endereco) {
+  if (!endereco) return '';
+  return String(endereco)
+    .replace(/\s+/g, ' ')
+    .replace(/\bN[º°O]?\s*\d+/gi, '')
+    .replace(/\bS\/N\b/gi, '')
+    .replace(/\bKM\s*[\d.,]+/gi, '')
+    .replace(/[,;]+/g, ',')
+    .trim();
+}
+
+// Adiciona jitter determinístico (~300m–2.5km) ao redor de um centroide,
+// para que postos da mesma cidade não se sobreponham no mapa e distâncias
+// fiquem visualmente distintas até o geocoding por endereço resolver.
+function jitterCidade(lat, lon, postoId) {
+  let h = 2166136261; // FNV-1a 32-bit seed
+  const str = String(postoId);
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const u1 = ((h >>> 0) & 0xffff) / 0xffff;
+  const u2 = ((h >>> 16) & 0xffff) / 0xffff;
+  const ang = u1 * Math.PI * 2;
+  // 0.003 ≈ 330m, 0.022 ≈ 2.4km
+  const rad = 0.003 + u2 * 0.019;
+  return { lat: lat + Math.sin(ang) * rad, lon: lon + Math.cos(ang) * rad };
+}
+
+// Lookup IBGE: 'NOME_NORMALIZADO|UF' → { lat, lon }
+let ibgeLookup = null;
+
+async function carregarIBGE() {
+  if (ibgeLookup) return ibgeLookup;
+  try {
+    const resp = await fetch(
+      'https://raw.githubusercontent.com/kelvins/municipios-brasileiros/main/csv/municipios.csv',
+      { headers: { 'User-Agent': 'PainelFrotas/3.0' } }
+    );
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const csv = await resp.text();
+    ibgeLookup = {};
+    const linhas = csv.split('\n').slice(1); // pula header
+    for (const linha of linhas) {
+      const partes = linha.split(',');
+      if (partes.length < 4) continue;
+      const nome = normalizarNome(partes[1]);
+      const lat = parseFloat(partes[2]);
+      const lon = parseFloat(partes[3]);
+      const codUf = parseInt(partes[5]);
+      const uf = IBGE_UF[codUf];
+      if (!uf || isNaN(lat) || isNaN(lon)) continue;
+      ibgeLookup[`${nome}|${uf}`] = { lat, lon };
+    }
+    log.info('CTF IBGE', `${Object.keys(ibgeLookup).length} municípios carregados`);
+  } catch (e) {
+    log.warn('CTF IBGE', `Falha: ${e.message}`);
+    ibgeLookup = {};
+  }
+  return ibgeLookup;
+}
+
+const ctfCache = {
+  postos: null,
+  precos: null,
+  postosTs: 0,
+  precosTs: 0,
+  geocode: {},      // 'CIDADE|UF' → { lat, lon } (centroide da cidade — fallback)
+  geocodePosto: {}, // postoId → { lat, lon, fonte: 'endereco' | 'cidade' | 'cidade_jitter', falhou? }
+};
+const CTF_TTL_POSTOS = 60 * 60 * 1000;
+const CTF_TTL_PRECOS = 10 * 60 * 1000;
+
+let geocodeQueue = [];           // [cidade, uf] pendentes
+let geocodePostoQueue = [];      // [posto] pendentes (geocoding por endereço)
+let geocodeAtivo = false;
+let geocodePostoAtivo = false;
+
+function carregarGeocodeCache() {
+  try {
+    if (fs.existsSync(CTF_GEOCODE_PATH)) {
+      ctfCache.geocode = JSON.parse(fs.readFileSync(CTF_GEOCODE_PATH, 'utf-8'));
+      const total = Object.keys(ctfCache.geocode).length;
+      const comCoords = Object.values(ctfCache.geocode).filter(Boolean).length;
+      log.info('CTF Geocode', `Cache cidades: ${comCoords}/${total} com coords`);
+    }
+    if (fs.existsSync(CTF_GEOCODE_POSTO_PATH)) {
+      ctfCache.geocodePosto = JSON.parse(fs.readFileSync(CTF_GEOCODE_POSTO_PATH, 'utf-8'));
+      const total = Object.keys(ctfCache.geocodePosto).length;
+      const porEnd = Object.values(ctfCache.geocodePosto).filter((v) => v && v.fonte === 'endereco').length;
+      log.info('CTF Geocode', `Cache postos: ${total} (${porEnd} por endereço, resto por cidade)`);
+    }
+  } catch (e) {
+    log.warn('CTF Geocode', `Falha ao carregar cache: ${e.message}`);
+  }
+}
+
+function salvarGeocodeCache() {
+  try {
+    fs.writeFileSync(CTF_GEOCODE_PATH, JSON.stringify(ctfCache.geocode));
+  } catch {}
+}
+
+function salvarGeocodePostosCache() {
+  try {
+    fs.writeFileSync(CTF_GEOCODE_POSTO_PATH, JSON.stringify(ctfCache.geocodePosto));
+  } catch {}
+}
+
+async function geocodificarCidade(cidade, uf) {
+  const chave = `${cidade}|${uf}`;
+  if (chave in ctfCache.geocode) return ctfCache.geocode[chave];
+
+  // Tenta IBGE primeiro (sem rate limit)
+  const lookup = ibgeLookup || {};
+  const nomeNorm = normalizarNome(cidade);
+  const coordIBGE = lookup[`${nomeNorm}|${uf}`];
+  if (coordIBGE) {
+    ctfCache.geocode[chave] = coordIBGE;
+    return coordIBGE;
+  }
+
+  // Fallback: Nominatim
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?city=${encodeURIComponent(cidade.toLowerCase())}&state=${encodeURIComponent(uf)}&country=Brazil&format=json&limit=1`;
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'PainelFrotas/3.0 (fleet management; coopertruni)' },
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (data && data[0]) {
+      const coord = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+      ctfCache.geocode[chave] = coord;
+      return coord;
+    }
+  } catch {}
+
+  ctfCache.geocode[chave] = null;
+  return null;
+}
+
+// Geocoding por endereço completo via Nominatim — retorna { lat, lon } ou null.
+async function geocodificarEndereco(endereco, bairro, cidade, uf) {
+  const tentativas = [
+    // 1) Endereço + cidade
+    { q: `${limparEndereco(endereco)}, ${cidade}, ${uf}, Brasil` },
+    // 2) Bairro + cidade
+    bairro ? { q: `${bairro}, ${cidade}, ${uf}, Brasil` } : null,
+  ].filter(Boolean);
+
+  for (const t of tentativas) {
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(t.q)}&format=json&limit=1&countrycodes=br`;
+      const resp = await fetch(url, {
+        headers: { 'User-Agent': 'PainelFrotas/3.0 (fleet management; coopertruni)' },
+      });
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      if (data && data[0]) {
+        const lat = parseFloat(data[0].lat);
+        const lon = parseFloat(data[0].lon);
+        if (!isNaN(lat) && !isNaN(lon)) return { lat, lon };
+      }
+    } catch {}
+    await delay(800); // respeita limite Nominatim
+  }
+  return null;
+}
+
+async function processarFilaGeocode() {
+  if (geocodeAtivo) return;
+  geocodeAtivo = true;
+  let contador = 0;
+  while (geocodeQueue.length > 0) {
+    const [cidade, uf] = geocodeQueue.shift();
+    const chave = `${cidade}|${uf}`;
+    if (!(chave in ctfCache.geocode)) {
+      await geocodificarCidade(cidade, uf);
+      contador++;
+      if (contador % 100 === 0) {
+        salvarGeocodeCache();
+        log.info('CTF Geocode', `${contador} cidades geocodificadas...`);
+      }
+      await delay(750); // ~1.3 req/seg, dentro do limite Nominatim
+    }
+  }
+  if (contador > 0) {
+    salvarGeocodeCache();
+    log.info('CTF Geocode', `Geocoding cidades concluído: ${contador} novas`);
+  }
+  geocodeAtivo = false;
+}
+
+// Processa fila de geocoding POR POSTO (endereço). Roda em background.
+async function processarFilaGeocodePostos() {
+  if (geocodePostoAtivo) return;
+  geocodePostoAtivo = true;
+  let contador = 0, sucessos = 0;
+
+  while (geocodePostoQueue.length > 0) {
+    const posto = geocodePostoQueue.shift();
+    if (!posto || !posto.id) continue;
+    if (ctfCache.geocodePosto[posto.id]?.fonte === 'endereco') continue;
+
+    const coord = await geocodificarEndereco(posto.endereco, posto.bairro, posto.cidade, posto.uf);
+    if (coord) {
+      ctfCache.geocodePosto[posto.id] = { ...coord, fonte: 'endereco' };
+      sucessos++;
+    } else {
+      // mantém entrada existente (cidade/jitter) — só marca como tentado
+      const atual = ctfCache.geocodePosto[posto.id] || {};
+      ctfCache.geocodePosto[posto.id] = { ...atual, tentadoEndereco: true };
+    }
+    contador++;
+
+    if (contador % 25 === 0) {
+      salvarGeocodePostosCache();
+      log.info('CTF Geocode Posto', `${contador} processados (${sucessos} match por endereço)`);
+    }
+    await delay(1100); // limite Nominatim (~1 req/s)
+  }
+
+  if (contador > 0) {
+    salvarGeocodePostosCache();
+    log.info('CTF Geocode Posto', `Concluído: ${contador} processados, ${sucessos} match por endereço`);
+  }
+  geocodePostoAtivo = false;
+}
+
+async function ctfSOAP(codTemplate, qtd = 9999) {
+  const envelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Header>
+    <SoapLogin xmlns="http://tempuri.org/">
+      <login>${CTF_USER}</login>
+      <senha>${CTF_PASS}</senha>
+    </SoapLogin>
+  </soap:Header>
+  <soap:Body>
+    <RecuperarCopia xmlns="http://tempuri.org/">
+      <parametroCopia>
+        <Ponteiro>0</Ponteiro>
+        <CodTemplate>${codTemplate}</CodTemplate>
+        <QtdRegistro>${qtd}</QtdRegistro>
+      </parametroCopia>
+    </RecuperarCopia>
+  </soap:Body>
+</soap:Envelope>`;
+
+  const resp = await fetch(CTF_URL_SOAP, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'text/xml; charset=utf-8',
+      'SOAPAction': '"http://tempuri.org/RecuperarCopia"',
+    },
+    body: envelope,
+    agent: new (require('https').Agent)({ rejectUnauthorized: false }),
+  });
+  if (!resp.ok) throw new Error(`CTF SOAP retornou ${resp.status}`);
+
+  const xml = await resp.text();
+  const match = xml.match(/<RecuperarCopiaResult>([\s\S]*?)<\/RecuperarCopiaResult>/);
+  if (!match) throw new Error('CTF: RecuperarCopiaResult não encontrado');
+
+  const innerXml = match[1]
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+
+  return parseStringPromise(innerXml, {
+    explicitArray: false,
+    ignoreAttrs: true,
+    trim: true,
+    emptyTag: null,
+  });
+}
+
+async function carregarPostosCTF() {
+  const agora = Date.now();
+  if (ctfCache.postos && agora - ctfCache.postosTs < CTF_TTL_POSTOS) return ctfCache.postos;
+
+  log.info('CTF', 'Carregando postos credenciados (Template 11)...');
+  const data = await ctfSOAP(11);
+  const rows = paraArray(data?.POSTOS?.POSTOSRow || []);
+
+  const strVal = (v) => {
+    if (!v) return '';
+    if (Array.isArray(v)) return String(v[0] || '').trim();
+    return String(v).trim();
+  };
+
+  const normId = (s) => String(s || '').trim().replace(/^0+(?=\d)/, '');
+  const mapa = {};
+  for (const r of rows) {
+    if (strVal(r.ATIVO) !== 'S') continue;
+    const id = normId(strVal(r.COD));
+    if (!id) continue;
+    mapa[id] = {
+      id,
+      nome: (strVal(r.FANTASIA) || strVal(r.APELIDO) || strVal(r.RAZAO) || 'Posto CTF'),
+      endereco: strVal(r.ENDERECO),
+      bairro: strVal(r.BAIRRO),
+      cidade: strVal(r.CIDADE).toUpperCase(),
+      uf: strVal(Array.isArray(r.UF) ? r.UF[0] : r.UF).toUpperCase().slice(0, 2),
+    };
+  }
+
+  ctfCache.postos = mapa;
+  ctfCache.postosTs = agora;
+  log.info('CTF', `${Object.keys(mapa).length} postos ativos carregados`);
+  return mapa;
+}
+
+async function carregarPrecosCTF() {
+  const agora = Date.now();
+  if (ctfCache.precos && agora - ctfCache.precosTs < CTF_TTL_PRECOS) return ctfCache.precos;
+
+  log.info('CTF', 'Carregando preços (Template 149)...');
+  const data = await ctfSOAP(149);
+  const rows = paraArray(data?.Preco_Bomba?.Preco_BombaRow || []);
+
+  const strP = (v) => Array.isArray(v) ? String(v[0] || '') : String(v || '');
+
+  // Normaliza ID removendo whitespace e zeros à esquerda (alguns vêm como "00123").
+  const normId = (s) => String(s || '').trim().replace(/^0+(?=\d)/, '');
+
+  const mapa = {};
+  let semCod = 0;
+  for (const r of rows) {
+    const idRaw = strP(r.COD_POSTO).trim();
+    if (!idRaw) { semCod++; continue; }
+    const id = normId(idRaw);
+    if (!mapa[id]) mapa[id] = {};
+
+    const comb = strP(r.COMBUSTIVEL).trim().toUpperCase();
+    const valor = parseFloat(strP(r.VALOR_NEW).replace(',', '.'));
+    if (!valor || valor < 0.5) continue;
+
+    const dt = strP(r.DATA_MUDANCA) || null;
+    // Mantém o preço mais recente por combustível.
+    if (comb === 'DIESEL S10' || comb === 'DIESEL S-10') {
+      if (!mapa[id].diesel_s10_dt || (dt && dt > mapa[id].diesel_s10_dt)) {
+        mapa[id].diesel_s10 = valor;
+        mapa[id].diesel_s10_dt = dt;
+      }
+    } else if (comb.startsWith('DIESEL')) {
+      if (!mapa[id].diesel_dt || (dt && dt > mapa[id].diesel_dt)) {
+        mapa[id].diesel = valor;
+        mapa[id].diesel_dt = dt;
+      }
+    } else if (comb.startsWith('GASOLINA')) {
+      mapa[id].gasolina = valor;
+    } else if (comb.includes('ARLA')) {
+      mapa[id].arla = valor;
+    }
+
+    // "atualizado" passa a ser a data MAIS RECENTE entre todos os combustíveis.
+    if (dt && (!mapa[id].atualizado || dt > mapa[id].atualizado)) {
+      mapa[id].atualizado = dt;
+    }
+  }
+
+  ctfCache.precos = mapa;
+  ctfCache.precosTs = agora;
+  log.info('CTF', `Preços de ${Object.keys(mapa).length} postos (${rows.length} linhas, ${semCod} sem COD)`);
+  return mapa;
+}
+
+async function iniciarGeocodeBackground() {
+  try {
+    // Carrega IBGE primeiro (seed de coordenadas sem rate limit)
+    await carregarIBGE();
+
+    const postos = await carregarPostosCTF();
+    const cidadesUnicas = new Set();
+    for (const p of Object.values(postos)) {
+      if (p.cidade && p.uf) cidadesUnicas.add(`${p.cidade}|${p.uf}`);
+    }
+
+    // Seed em lote com IBGE (sem delay)
+    const lookup = ibgeLookup || {};
+    let seedadas = 0;
+    for (const chave of cidadesUnicas) {
+      if (chave in ctfCache.geocode) continue;
+      const [cidade, uf] = chave.split('|');
+      const nomeNorm = normalizarNome(cidade);
+      const coord = lookup[`${nomeNorm}|${uf}`];
+      if (coord) {
+        ctfCache.geocode[chave] = coord;
+        seedadas++;
+      }
+    }
+    if (seedadas > 0) salvarGeocodeCache();
+    log.info('CTF Geocode', `${seedadas} cidades seedadas via IBGE`);
+
+    // Pré-gera coordenadas por posto via jitter (resolve "todos no mesmo ponto"
+    // de imediato — refino por endereço ocorre sob demanda em background).
+    let preGerados = 0;
+    for (const p of Object.values(postos)) {
+      if (ctfCache.geocodePosto[p.id]?.fonte === 'endereco') continue;
+      if (ctfCache.geocodePosto[p.id]?.fonte === 'cidade_jitter') continue;
+      const cid = ctfCache.geocode[`${p.cidade}|${p.uf}`];
+      if (cid && typeof cid.lat === 'number') {
+        const j = jitterCidade(cid.lat, cid.lon, p.id);
+        ctfCache.geocodePosto[p.id] = { lat: j.lat, lon: j.lon, fonte: 'cidade_jitter' };
+        preGerados++;
+      }
+    }
+    if (preGerados > 0) {
+      salvarGeocodePostosCache();
+      log.info('CTF Geocode Posto', `${preGerados} postos com coords iniciais via jitter`);
+    }
+
+    // Cidades restantes → Nominatim em background
+    const pendentes = [...cidadesUnicas]
+      .filter((c) => !(c in ctfCache.geocode))
+      .map((c) => c.split('|'));
+    log.info('CTF Geocode', `${cidadesUnicas.size} cidades únicas, ${pendentes.length} para Nominatim`);
+    geocodeQueue.push(...pendentes);
+    processarFilaGeocode();
+  } catch (e) {
+    log.error('CTF Geocode', `Erro ao iniciar: ${e.message}`);
+  }
+}
+
+// ── Endpoint Postos ───────────────────────────────────────────────
+
+// Resolve a coordenada de UM posto. Estratégia:
+//  1) Cache por posto (preferindo fonte=endereco).
+//  2) Fallback: centroide da cidade + jitter determinístico (mantém distâncias distintas).
+function resolverCoordPosto(posto) {
+  const existente = ctfCache.geocodePosto[posto.id];
+  if (existente && typeof existente.lat === 'number') {
+    return { lat: existente.lat, lon: existente.lon, fonte: existente.fonte || 'cidade' };
+  }
+  const chaveCid = `${posto.cidade}|${posto.uf}`;
+  const cid = ctfCache.geocode[chaveCid];
+  if (cid && typeof cid.lat === 'number') {
+    const j = jitterCidade(cid.lat, cid.lon, posto.id);
+    ctfCache.geocodePosto[posto.id] = { lat: j.lat, lon: j.lon, fonte: 'cidade_jitter' };
+    return { lat: j.lat, lon: j.lon, fonte: 'cidade_jitter' };
+  }
+  return null;
+}
+
+// Constrói um item de posto pronto pro frontend.
+function montarPostoItem(posto, coord, distancia, precosMap) {
+  const preco = precosMap[posto.id] || {};
+  const endStr = [posto.endereco, posto.bairro, posto.cidade, posto.uf]
+    .filter(Boolean).filter((s, i, a) => a.indexOf(s) === i).join(', ');
+  const temPrecoFlag = !!(preco.diesel || preco.diesel_s10 || preco.gasolina || preco.arla);
+  return {
+    id: `ctf_${posto.id}`,
+    ctfId: posto.id,
+    nome: posto.nome,
+    marca: null,
+    lat: coord.lat,
+    lon: coord.lon,
+    distancia: Math.round(distancia * 10) / 10,
+    endereco: endStr || null,
+    cidade: posto.cidade,
+    uf: posto.uf,
+    preco_diesel: preco.diesel || null,
+    preco_diesel_s10: preco.diesel_s10 || null,
+    preco_gasolina: preco.gasolina || null,
+    preco_arla: preco.arla || null,
+    preco_atualizado: preco.atualizado || null,
+    geocoded_por: coord.fonte,
+    temPreco: temPrecoFlag,
+    fonte: 'CTF',
+  };
+}
+
+app.get('/api/postos', async (req, res) => {
+  const { lat, lon, raio = '20000', expandir } = req.query;
+  if (!lat || !lon) return res.status(400).json({ erro: 'lat e lon são obrigatórios' });
+
+  const latN = parseFloat(lat);
+  const lonN = parseFloat(lon);
+  const raioInicial = Math.min(parseInt(raio) || 20000, 200000) / 1000;
+  const autoExpandir = expandir !== 'off';
+
+  if (isNaN(latN) || isNaN(lonN)) return res.status(400).json({ erro: 'lat/lon inválidos' });
+
+  try {
+    const [postosMap, precosMap] = await Promise.all([
+      carregarPostosCTF(),
+      carregarPrecosCTF(),
+    ]);
+
+    // 1) Geocoding de cidades não cacheadas (background) — só fallback.
+    const cidadesParaGeocode = new Set();
+    for (const p of Object.values(postosMap)) {
+      const chave = `${p.cidade}|${p.uf}`;
+      if (p.cidade && p.uf && !(chave in ctfCache.geocode)) cidadesParaGeocode.add(chave);
+    }
+    if (cidadesParaGeocode.size > 0) {
+      geocodeQueue.push(...[...cidadesParaGeocode].map((c) => c.split('|')));
+      if (!geocodeAtivo) processarFilaGeocode();
+    }
+
+    // 2) Função que coleta postos dentro de um raio dado.
+    const coletar = (raioKm) => {
+      const lista = [];
+      for (const posto of Object.values(postosMap)) {
+        const coord = resolverCoordPosto(posto);
+        if (!coord) continue;
+        const dist = calcularDistanciaKm(latN, lonN, coord.lat, coord.lon);
+        if (dist > raioKm) continue;
+        lista.push(montarPostoItem(posto, coord, dist, precosMap));
+      }
+      return lista;
+    };
+
+    let raioKm = raioInicial;
+    let postos = coletar(raioKm);
+    let comPreco = postos.filter((p) => p.temPreco).length;
+    let expandiuAuto = false;
+
+    // 3) Auto-expansão: se NENHUM posto com preço foi achado, aumenta raio até achar
+    // (até 150km), pra UX nunca dar “nenhum com preço” sem mostrar alternativa.
+    if (autoExpandir && comPreco === 0) {
+      for (const raioTeste of [Math.max(raioKm, 30), 60, 100, 150]) {
+        if (raioTeste <= raioKm) continue;
+        const lista = coletar(raioTeste);
+        const cp = lista.filter((p) => p.temPreco).length;
+        if (cp > 0) {
+          raioKm = raioTeste;
+          postos = lista;
+          comPreco = cp;
+          expandiuAuto = true;
+          break;
+        }
+      }
+    }
+
+    postos.sort((a, b) => a.distancia - b.distancia);
+
+    // 4) Agenda geocoding por endereço para postos visíveis sem refinamento.
+    // Postos visíveis vão pro INÍCIO da fila (alta prioridade).
+    const candidatos = postos
+      .filter((p) => p.geocoded_por !== 'endereco')
+      .slice(0, 60)
+      .map((p) => postosMap[p.ctfId])
+      .filter(Boolean);
+
+    if (candidatos.length > 0) {
+      const jaEnfileirados = new Set(geocodePostoQueue.map((p) => p.id));
+      const novos = [];
+      for (const c of candidatos) {
+        if (!jaEnfileirados.has(c.id) &&
+            ctfCache.geocodePosto[c.id]?.fonte !== 'endereco' &&
+            !ctfCache.geocodePosto[c.id]?.tentadoEndereco) {
+          novos.push(c);
+        }
+      }
+      // unshift para prioridade (postos da região visível vêm antes).
+      if (novos.length > 0) geocodePostoQueue.unshift(...novos);
+      if (!geocodePostoAtivo) processarFilaGeocodePostos();
+    }
+
+    const geocodadas = Object.values(ctfCache.geocode).filter(Boolean).length;
+    const totalCidades = Object.keys(ctfCache.geocode).length;
+    const totalPostosGeoc = Object.keys(ctfCache.geocodePosto).length;
+    const porEndereco = Object.values(ctfCache.geocodePosto).filter((v) => v?.fonte === 'endereco').length;
+
+    log.info('CTF Postos',
+      `${postos.length} em ${raioKm}km (preço:${comPreco}, exp:${expandiuAuto}) | geoc cidades:${geocodadas}/${totalCidades} postos:${porEndereco}/${totalPostosGeoc}`
+    );
+
+    res.json({
+      postos,
+      total: postos.length,
+      raio: raioKm * 1000,
+      raioOriginal: raioInicial * 1000,
+      expandiuAuto,
+      comPreco,
+      geocodeStatus: { geocodadas, totalCidades, postosGeocodificados: totalPostosGeoc, porEndereco },
+    });
+  } catch (err) {
+    log.error('CTF Postos', err.message);
+    res.status(502).json({ erro: `Falha ao buscar postos: ${err.message}` });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────
 
 app.get('/api/frota', (_req, res) => {
   res.json(montarDadosFrota());
@@ -806,7 +1446,14 @@ if (fs.existsSync(path.join(distPath, 'index.html'))) {
 
 const server = app.listen(PORT, async () => {
   log.info('Server', `Painel de Frotas rodando em http://localhost:${PORT}`);
+  carregarGeocodeCache();
   await iniciarPolling();
+  if (CTF_USER && CTF_PASS) {
+    log.info('CTF', `Credenciais configuradas (${CTF_USER})`);
+    setTimeout(iniciarGeocodeBackground, 5000); // inicia após polling estabilizar
+  } else {
+    log.warn('CTF', 'CTF_USER/CTF_PASS não configurados — postos CTF desabilitados');
+  }
 });
 
 

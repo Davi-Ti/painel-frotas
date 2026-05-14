@@ -2,3 +2,8 @@ node_modules/
 dist/
 .env
 .cache-frota.json
+.cache-precos.json
+.cache-geocode-ctf.json
+.cache-geocode-postos.json
+_diag.js
+*.log

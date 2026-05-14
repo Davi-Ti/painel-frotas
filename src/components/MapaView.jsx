@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap } from 'react-leaflet';
 import L from 'leaflet';
+import PostosPanel from './PostosPanel';
 import {
   formatarPlaca, formatarDataHora, formatarKM, formatarTemp,
   tempoAtras, corDoStatus, corDoSeverity, labelSeverity,
@@ -46,6 +47,27 @@ function AutoFitBounds({ posicoes, fitCounter, assinatura }) {
   return null;
 }
 
+// Ajusta mapa para mostrar veículo + postos próximos
+function FitPostosBounds({ veiLatLon, postos, ativo }) {
+  const map = useMap();
+  const prevRef = useRef('');
+
+  useEffect(() => {
+    if (!ativo || !veiLatLon || postos.length === 0) return;
+    const sig = `${veiLatLon[0]},${veiLatLon[1]},${postos.length}`;
+    if (sig === prevRef.current) return;
+    prevRef.current = sig;
+
+    const pontos = [veiLatLon, ...postos.slice(0, 15).map((p) => [p.lat, p.lon])];
+    const limites = L.latLngBounds(pontos);
+    if (limites.isValid()) {
+      setTimeout(() => map.fitBounds(limites, { padding: [50, 50], maxZoom: 13 }), 200);
+    }
+  }, [veiLatLon, postos, ativo, map]);
+
+  return null;
+}
+
 function criarIcone(cor, placa, temAlerta) {
   const texto = placa && placa !== 'S/Placa' ? placa : '';
   return L.divIcon({
@@ -61,9 +83,39 @@ function criarIcone(cor, placa, temAlerta) {
   });
 }
 
+function formatarPrecoMarcador(posto) {
+  const v = posto.preco_diesel_s10 ?? posto.preco_diesel;
+  if (!v) return null;
+  return parseFloat(v).toFixed(3).replace('.', ',');
+}
+
+function criarIconePosto(posto, selecionado = false) {
+  const preco = formatarPrecoMarcador(posto);
+  const sel = selecionado ? ' marcador-posto-sel' : '';
+  const html = preco
+    ? `<div class="marcador-posto-wrap${sel}"><div class="marcador-preco-tag">${preco}</div><div class="marcador-posto-ico">⛽</div></div>`
+    : `<div class="marcador-posto${sel}">⛽</div>`;
+  const size = preco ? [60, 52] : [34, 34];
+  const anchor = preco ? [30, 46] : [17, 17];
+  return L.divIcon({ className: '', html, iconSize: size, iconAnchor: anchor, popupAnchor: [0, -10] });
+}
+
 export default function MapaView({ veiculos, fitCounter = 0 }) {
   const [selecionado, setSelecionado] = useState(null);
   const [buscaPlaca, setBuscaPlaca] = useState('');
+
+  // Estado de postos
+  const [modoPostos, setModoPostos] = useState(false);
+  const [postosVeiculo, setPostosVeiculo] = useState(null);
+  const [postos, setPostos] = useState([]);
+  const [postosCarregando, setPostosCarregando] = useState(false);
+  const [postosErro, setPostosErro] = useState(null);
+  const [postoSelecionado, setPostoSelecionado] = useState(null);
+  const [raioPostos, setRaioPostos] = useState(30000);
+  const [geocodeStatus, setGeocodeStatus] = useState(null);
+  const [raioEfetivo, setRaioEfetivo] = useState(30000);
+  const [expandiuAuto, setExpandiuAuto] = useState(false);
+  const [comPrecoTotal, setComPrecoTotal] = useState(0);
 
   const noMapa = useMemo(() => {
     return veiculos.filter((v) =>
@@ -93,14 +145,56 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
 
   const vei = selecionado ? veiculos.find((v) => v.veiID === selecionado) : null;
 
+  async function buscarPostos(veiculo, raio = raioPostos) {
+    if (!veiculo?.lat || !veiculo?.lon) return;
+    setModoPostos(true);
+    setPostosVeiculo(veiculo);
+    setPostosCarregando(true);
+    setPostosErro(null);
+    setPostos([]);
+    setPostoSelecionado(null);
+
+    try {
+      const resp = await fetch(`/api/postos?lat=${veiculo.lat}&lon=${veiculo.lon}&raio=${raio}`);
+      const data = await resp.json();
+      if (data.erro) throw new Error(data.erro);
+      setPostos(data.postos || []);
+      if (data.geocodeStatus) setGeocodeStatus(data.geocodeStatus);
+      setRaioEfetivo(data.raio || raio);
+      setExpandiuAuto(!!data.expandiuAuto);
+      setComPrecoTotal(data.comPreco || 0);
+    } catch (err) {
+      setPostosErro(err.message);
+    } finally {
+      setPostosCarregando(false);
+    }
+  }
+
+  function sairModoPostos() {
+    setModoPostos(false);
+    setPostos([]);
+    setPostoSelecionado(null);
+    setPostosErro(null);
+    setPostosVeiculo(null);
+  }
+
+  async function mudarRaio(novoRaio) {
+    setRaioPostos(novoRaio);
+    if (postosVeiculo) await buscarPostos(postosVeiculo, novoRaio);
+  }
+
+  const veiLatLon = postosVeiculo?.lat && postosVeiculo?.lon
+    ? [postosVeiculo.lat, postosVeiculo.lon]
+    : null;
+
   return (
-    <div className="mapa-layout">
+    <div className={`mapa-layout${modoPostos ? ' postos-ativo' : ''}`}>
       {/* === MAPA === */}
       <div className="mapa-container">
         <div className="mapa-busca">
           <input
             type="text"
-            placeholder="Buscar placa no mapa..."
+            placeholder="Buscar placa..."
             value={buscaPlaca}
             onChange={(e) => setBuscaPlaca(e.target.value)}
           />
@@ -112,10 +206,22 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
 
         <MapContainer center={[-19.5, -51]} zoom={6.4} scrollWheelZoom zoomControl={false} style={{ height: '100%', width: '100%' }}>
           <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution="&copy; CARTO" />
-          <AutoFitBounds posicoes={noMapaFiltrado} fitCounter={fitCounter} assinatura={assinaturaMapa} />
 
+          {!modoPostos && (
+            <AutoFitBounds posicoes={noMapaFiltrado} fitCounter={fitCounter} assinatura={assinaturaMapa} />
+          )}
+
+          <FitPostosBounds veiLatLon={veiLatLon} postos={postos} ativo={modoPostos && postos.length > 0} />
+
+          {/* Marcadores de veículos */}
           {noMapaFiltrado.map((v) => (
-            <Marker key={v.veiID} position={[v.lat, v.lon]} icon={criarIcone(v.statusCor, formatarPlaca(v.placa), v.eventos.length > 0)} eventHandlers={{ click: () => setSelecionado(v.veiID) }}>
+            <Marker
+              key={v.veiID}
+              position={[v.lat, v.lon]}
+              icon={criarIcone(v.statusCor, formatarPlaca(v.placa), v.eventos.length > 0)}
+              zIndexOffset={selecionado === v.veiID ? 500 : 0}
+              eventHandlers={{ click: () => { setSelecionado(v.veiID); if (modoPostos) sairModoPostos(); } }}
+            >
               <Tooltip direction="top" offset={[0, -22]} className="tooltip-veiculo">
                 <strong>{formatarPlaca(v.placa)}</strong> — {v.statusTexto}
               </Tooltip>
@@ -143,15 +249,42 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
               </Popup>
             </Marker>
           ))}
+
+          {/* Marcadores de postos de combustível */}
+          {modoPostos && postos.map((posto) => (
+            <Marker
+              key={posto.id}
+              position={[posto.lat, posto.lon]}
+              icon={criarIconePosto(posto, postoSelecionado?.id === posto.id)}
+              zIndexOffset={postoSelecionado?.id === posto.id ? 1000 : 0}
+              eventHandlers={{ click: () => setPostoSelecionado(posto) }}
+            >
+              <Tooltip direction="top" className="tooltip-veiculo">
+                <strong>{posto.nome}</strong>
+                {posto.preco_diesel && ` — Diesel R$ ${parseFloat(posto.preco_diesel).toFixed(3)}`}
+                <br />{posto.distancia} km
+              </Tooltip>
+            </Marker>
+          ))}
         </MapContainer>
 
         {/* Legenda */}
-        <div className="mapa-legenda">
-          <div className="legenda-item"><span className="bolinha verde" /> Movimento</div>
-          <div className="legenda-item"><span className="bolinha amarelo" /> Ign. Ligada</div>
-          <div className="legenda-item"><span className="bolinha azul" /> Parado</div>
-          <div className="legenda-item"><span className="bolinha cinza" /> Sem Sinal</div>
-        </div>
+        {!modoPostos && (
+          <div className="mapa-legenda">
+            <div className="legenda-item"><span className="bolinha verde" /> Movimento</div>
+            <div className="legenda-item"><span className="bolinha amarelo" /> Ign. Ligada</div>
+            <div className="legenda-item"><span className="bolinha azul" /> Parado</div>
+            <div className="legenda-item"><span className="bolinha cinza" /> Sem Sinal</div>
+          </div>
+        )}
+
+        {modoPostos && (
+          <div className="mapa-legenda">
+            <div className="legenda-item"><span style={{ fontSize: '1rem' }}>🚛</span> Veículo</div>
+            <div className="legenda-item"><span style={{ fontSize: '1rem' }}>⛽</span> Posto</div>
+            <div className="legenda-item" style={{ color: '#f59e0b' }}>{postos.length} encontrados</div>
+          </div>
+        )}
 
         <div className="mapa-stats">
           <strong>{noMapaFiltrado.length}</strong> no mapa
@@ -162,7 +295,25 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
 
       {/* === PAINEL LATERAL === */}
       <aside className="mapa-painel">
-        {vei ? (
+        {/* Modo Postos */}
+        {modoPostos && postosVeiculo ? (
+          <PostosPanel
+            postos={postos}
+            carregando={postosCarregando}
+            erro={postosErro}
+            veiculo={postosVeiculo}
+            raio={raioPostos}
+            raioEfetivo={raioEfetivo}
+            expandiuAuto={expandiuAuto}
+            onRaioChange={mudarRaio}
+            onFechar={sairModoPostos}
+            postoSelecionadoId={postoSelecionado?.id}
+            onPostoClick={setPostoSelecionado}
+            geocodeStatus={geocodeStatus}
+            comPreco={comPrecoTotal}
+          />
+        ) : vei ? (
+          /* Detalhe do veículo */
           <div className="painel-detalhe">
             <div className="painel-detalhe-header">
               <h3>{formatarPlaca(vei.placa)}</h3>
@@ -178,6 +329,21 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
               <div className="painel-campo"><label>Temperatura</label><span>{formatarTemp(vei.temperatura1)}</span></div>
             )}
             <div className="painel-campo"><label>Atualização</label><span>{formatarDataHora(vei.dataHora)} {tempoAtras(vei.dataHora)}</span></div>
+
+            {/* Botão buscar postos */}
+            {vei.lat && vei.lon ? (
+              <button
+                className="btn-buscar-postos"
+                onClick={() => { buscarPostos(vei); }}
+              >
+                ⛽ Buscar Postos Próximos
+              </button>
+            ) : (
+              <div className="painel-campo" style={{ opacity: 0.5 }}>
+                <span style={{ fontSize: '0.78rem', color: 'var(--texto-muted, #6b7280)' }}>⛽ Posição indisponível para busca de postos</span>
+              </div>
+            )}
+
             {vei.eventos.length > 0 && (
               <div className="painel-alertas-detalhe">
                 <label>Alertas Ativos</label>
@@ -192,6 +358,7 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
             )}
           </div>
         ) : (
+          /* Central de Alertas */
           <div className="painel-alertas">
             <h3>🚨 Central de Alertas</h3>
             <div className="painel-alertas-contagem">

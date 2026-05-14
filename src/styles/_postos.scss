@@ -1,0 +1,794 @@
+@use 'sass:color';
+@use 'variables' as *;
+
+// ── Painel de Postos ──────────────────────────────────────────────
+.postos-painel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  flex: 1;
+}
+
+.postos-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid $borda;
+  flex-shrink: 0;
+  background: $bg-card;
+  min-width: 0;
+}
+
+.btn-voltar-postos {
+  background: rgba($bg-principal, 0.8);
+  border: 1px solid $borda;
+  color: $texto-secundario;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+
+  &:hover {
+    color: $texto-primario;
+    background: $bg-card-hover;
+  }
+}
+
+.postos-header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.postos-veiculo-placa {
+  font-size: 0.72rem;
+  color: $texto-muted;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.5px;
+}
+
+.postos-titulo {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: $texto-primario;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+// ── Controles ─────────────────────────────────────────────────────
+.postos-controles {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid $borda;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.postos-raio-select {
+  background: rgba($bg-principal, 0.8);
+  border: 1px solid $borda;
+  color: $texto-primario;
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 0.78rem;
+  cursor: pointer;
+
+  &:focus {
+    outline: none;
+    border-color: $marca-azul;
+  }
+}
+
+.postos-ordem-toggle {
+  display: flex;
+  border: 1px solid $borda;
+  border-radius: 6px;
+  overflow: hidden;
+  flex: 1;
+}
+
+.postos-ordem-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: $texto-muted;
+  font-size: 0.74rem;
+  padding: 5px 8px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+
+  &.ativo {
+    background: $marca-azul;
+    color: #fff;
+    font-weight: 600;
+  }
+
+  &:not(.ativo):hover {
+    background: $bg-card-hover;
+    color: $texto-primario;
+  }
+
+  & + & {
+    border-left: 1px solid $borda;
+  }
+}
+
+// ── Barra de filtro ───────────────────────────────────────────────
+.postos-filtro-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid $borda;
+  flex-shrink: 0;
+  background: rgba($bg-principal, 0.4);
+}
+
+.postos-filtro-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: 1px solid $borda;
+  color: $texto-muted;
+  font-size: 0.73rem;
+  padding: 4px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s;
+
+  &.ativo {
+    background: $marca-azul;
+    border-color: $marca-azul;
+    color: #fff;
+    font-weight: 600;
+
+    .postos-filtro-count {
+      background: rgba(255,255,255,0.25);
+      color: #fff;
+    }
+  }
+
+  &:not(.ativo):hover {
+    border-color: $marca-azul;
+    color: $texto-primario;
+  }
+}
+
+.postos-filtro-count {
+  background: rgba($texto-muted, 0.2);
+  color: $texto-muted;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0 5px;
+  border-radius: 8px;
+  min-width: 16px;
+  text-align: center;
+}
+
+.postos-geocode-inline {
+  margin-left: auto;
+  font-size: 0.67rem;
+  color: $texto-muted;
+}
+
+.postos-ver-todos-btn {
+  background: rgba($marca-azul, 0.1);
+  border: 1px solid rgba($marca-azul, 0.4);
+  color: $cor-azul-claro;
+  font-size: 0.78rem;
+  padding: 7px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+  margin-top: 4px;
+
+  &:hover { background: rgba($marca-azul, 0.2); }
+}
+
+// ── Status geocode (legado, mantido para compatibilidade) ─────────
+.postos-geocode-status {
+  padding: 6px 14px;
+  font-size: 0.72rem;
+  color: $texto-muted;
+  background: rgba($marca-azul, 0.06);
+  border-bottom: 1px solid $borda;
+  flex-shrink: 0;
+}
+
+// ── Estados especiais ─────────────────────────────────────────────
+.postos-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px 20px;
+  color: $texto-muted;
+
+  p { font-size: 0.88rem; }
+}
+
+.postos-loading-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid $borda;
+  border-top-color: $marca-azul;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.postos-erro {
+  padding: 16px;
+  color: $cor-vermelho;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.postos-vazio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  color: $texto-muted;
+  gap: 8px;
+
+  span { font-size: 2.5rem; }
+  p { font-size: 0.88rem; text-align: center; margin: 0; }
+  small {
+    font-size: 0.72rem;
+    text-align: center;
+    color: color.adjust($texto-muted, $lightness: -10%);
+    max-width: 220px;
+    line-height: 1.35;
+  }
+}
+
+// ── Lista de postos ───────────────────────────────────────────────
+.postos-lista {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+
+  &::-webkit-scrollbar { width: 4px; }
+  &::-webkit-scrollbar-thumb { background: $borda; border-radius: 3px; }
+}
+
+.posto-card {
+  background: rgba($bg-card-hover, 0.7);
+  border: 1px solid $borda;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.15s, background 0.15s;
+  cursor: pointer;
+  flex-shrink: 0;
+
+  &:hover { background: $bg-card-hover; }
+
+  &.selecionado {
+    border-color: $marca-azul;
+    background: rgba($marca-azul, 0.07);
+    box-shadow: 0 0 0 1px rgba($marca-azul, 0.25);
+  }
+
+  &.melhor-preco { border-color: $cor-verde; }
+
+  &.sem-preco-card {
+    opacity: 0.55;
+
+    &:hover { opacity: 0.8; }
+  }
+}
+
+.posto-card-resumo {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  padding: 10px 12px;
+  align-items: start;
+  min-width: 0;
+}
+
+.posto-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.posto-nome {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: $texto-primario;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.posto-end {
+  font-size: 0.67rem;
+  color: $texto-muted;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.posto-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  flex-shrink: 0;
+  min-width: 70px;
+  max-width: 50%;
+}
+
+.posto-distancia {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: $cor-azul-claro;
+  white-space: nowrap;
+}
+
+.posto-sem-preco {
+  font-size: 0.63rem;
+  color: color.adjust($texto-muted, $lightness: -8%);
+  font-style: italic;
+  white-space: nowrap;
+}
+
+.posto-precos-mini {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.preco-mini {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.2px;
+
+  &.diesel {
+    background: rgba(#f59e0b, 0.15);
+    color: #f59e0b;
+    border: 1px solid rgba(#f59e0b, 0.25);
+  }
+
+  &.diesel-s10 {
+    background: rgba($cor-verde, 0.15);
+    color: $cor-verde;
+    border: 1px solid rgba($cor-verde, 0.25);
+  }
+
+  &.gasolina {
+    background: rgba($marca-azul, 0.15);
+    color: $cor-azul-claro;
+    border: 1px solid rgba($marca-azul, 0.25);
+  }
+
+  &.arla {
+    background: rgba(#06b6d4, 0.15);
+    color: #06b6d4;
+    border: 1px solid rgba(#06b6d4, 0.25);
+  }
+}
+
+.badge-melhor-preco {
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: $cor-verde;
+  background: rgba($cor-verde, 0.12);
+  padding: 1px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+
+  &.arla {
+    color: #06b6d4;
+    background: rgba(#06b6d4, 0.12);
+  }
+}
+
+// ── Aviso de expansão automática de raio ──────────────────────────
+.postos-aviso-expansao {
+  padding: 8px 12px;
+  font-size: 0.73rem;
+  color: #fbbf24;
+  background: rgba(#f59e0b, 0.10);
+  border-bottom: 1px solid rgba(#f59e0b, 0.25);
+  border-left: 3px solid #f59e0b;
+  line-height: 1.35;
+  flex-shrink: 0;
+
+  strong { color: #fff; }
+}
+
+// ── Rodapé do painel de postos ────────────────────────────────────
+.postos-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  border-top: 1px solid $borda;
+  font-size: 0.67rem;
+  color: $texto-muted;
+  background: rgba($bg-principal, 0.5);
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+// ── Botões de navegação (Rota / Waze) ─────────────────────────────
+.posto-aprox {
+  color: $texto-muted;
+  margin-right: 2px;
+  font-weight: 400;
+}
+
+.posto-acoes-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px 9px;
+  flex-wrap: wrap;
+}
+
+.posto-nav-btns {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.posto-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 5px;
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s, transform 0.05s;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &.gmaps {
+    background: rgba(#4285f4, 0.12);
+    border: 1px solid rgba(#4285f4, 0.35);
+    color: #93c5fd;
+
+    &:hover {
+      background: rgba(#4285f4, 0.22);
+      border-color: #60a5fa;
+    }
+  }
+
+  &.waze {
+    background: rgba(#33ccff, 0.10);
+    border: 1px solid rgba(#33ccff, 0.30);
+    color: #67e8f9;
+
+    &:hover {
+      background: rgba(#33ccff, 0.20);
+      border-color: #22d3ee;
+    }
+  }
+
+  &:active { transform: scale(0.97); }
+}
+
+// ── Ações do posto ────────────────────────────────────────────────
+.posto-acoes {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px 8px;
+  gap: 8px;
+}
+
+.btn-registrar-preco {
+  background: transparent;
+  border: 1px solid $borda;
+  color: $texto-secundario;
+  font-size: 0.72rem;
+  padding: 4px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+
+  &:hover {
+    color: $texto-primario;
+    border-color: $marca-azul;
+    background: rgba($marca-azul, 0.08);
+  }
+}
+
+.posto-preco-data-row {
+  padding: 0 14px 8px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.posto-preco-data {
+  font-size: 0.65rem;
+  color: $texto-muted;
+  white-space: nowrap;
+}
+
+// ── Formulário de preço ───────────────────────────────────────────
+.posto-form-preco {
+  border-top: 1px solid $borda;
+  padding: 10px 12px;
+  background: rgba($bg-principal, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-preco-row {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  align-items: center;
+  gap: 8px;
+
+  label {
+    font-size: 0.72rem;
+    color: $texto-muted;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+
+  input {
+    background: rgba($bg-principal, 0.8);
+    border: 1px solid $borda;
+    border-radius: 5px;
+    color: $texto-primario;
+    font-size: 0.82rem;
+    padding: 5px 8px;
+    width: 100%;
+
+    &:focus {
+      outline: none;
+      border-color: $marca-azul;
+      box-shadow: 0 0 0 2px rgba($marca-azul, 0.2);
+    }
+
+    &::placeholder {
+      color: $texto-muted;
+    }
+  }
+
+  &.obs {
+    grid-template-columns: 90px 1fr;
+  }
+}
+
+.form-preco-btns {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.btn-cancelar-preco {
+  background: transparent;
+  border: 1px solid $borda;
+  color: $texto-muted;
+  font-size: 0.78rem;
+  padding: 5px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+
+  &:hover {
+    color: $texto-primario;
+  }
+}
+
+.btn-salvar-preco {
+  background: $marca-azul;
+  border: none;
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 5px 14px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+
+  &:hover { opacity: 0.85; }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+
+// ── Marcador de posto no mapa ─────────────────────────────────────
+.marcador-posto {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(20, 22, 40, 0.95);
+  border: 2px solid #f59e0b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+  transition: transform 0.15s;
+
+  &.marcador-posto-sel {
+    border-color: $cor-verde;
+    transform: scale(1.2);
+    box-shadow: 0 0 0 3px rgba($cor-verde, 0.4), 0 2px 8px rgba(0,0,0,0.6);
+    z-index: 1000 !important;
+  }
+}
+
+// Marcador com preço
+.marcador-posto-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  transition: transform 0.15s;
+
+  &.marcador-posto-sel {
+    transform: scale(1.15);
+    z-index: 1000 !important;
+
+    .marcador-preco-tag {
+      background: $cor-verde;
+      border-color: $cor-verde;
+      color: #fff;
+    }
+
+    .marcador-posto-ico {
+      border-color: $cor-verde;
+      box-shadow: 0 0 0 3px rgba($cor-verde, 0.4), 0 2px 8px rgba(0,0,0,0.6);
+    }
+  }
+}
+
+.marcador-preco-tag {
+  background: rgba(15, 17, 35, 0.97);
+  border: 1.5px solid #f59e0b;
+  color: #fbbf24;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  padding: 2px 7px;
+  border-radius: 5px;
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.6);
+  line-height: 1.3;
+}
+
+.marcador-posto-ico {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(20, 22, 40, 0.95);
+  border: 2px solid #f59e0b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
+
+// ── Botão buscar postos ───────────────────────────────────────────
+.btn-buscar-postos {
+  width: 100%;
+  background: rgba(#f59e0b, 0.1);
+  border: 1px solid rgba(#f59e0b, 0.4);
+  color: #f59e0b;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 9px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  margin-top: 4px;
+  text-align: center;
+
+  &:hover {
+    background: rgba(#f59e0b, 0.18);
+    border-color: #f59e0b;
+  }
+}
+
+// ── Responsivo postos ─────────────────────────────────────────────
+.mapa-layout.postos-ativo {
+  @media (max-width: 1024px) {
+    .mapa-container { min-height: 40vh; }
+    .mapa-painel { max-height: 60vh; }
+  }
+
+  @media (max-width: 768px) {
+    .mapa-container { min-height: 32vh; }
+    .mapa-painel { max-height: 68vh; }
+  }
+}
+
+@media (max-width: 768px) {
+  .postos-header { padding: 8px 10px; gap: 6px; }
+  .postos-titulo { font-size: 0.82rem; }
+  .postos-veiculo-placa { font-size: 0.68rem; }
+
+  .postos-controles {
+    padding: 7px 10px;
+    gap: 6px;
+  }
+
+  .postos-raio-select { font-size: 0.74rem; padding: 4px 6px; }
+  .postos-ordem-btn { font-size: 0.7rem; padding: 5px 6px; }
+
+  .postos-filtro-bar { padding: 5px 8px; gap: 4px; }
+  .postos-filtro-btn { font-size: 0.69rem; padding: 3px 8px; }
+
+  .postos-aviso-expansao {
+    padding: 7px 10px;
+    font-size: 0.68rem;
+  }
+
+  .postos-lista { padding: 6px; gap: 4px; }
+  .posto-card-resumo { padding: 9px 10px; gap: 6px; }
+  .posto-nome { font-size: 0.8rem; }
+  .posto-end { font-size: 0.63rem; }
+  .posto-distancia { font-size: 0.74rem; }
+  .preco-mini { font-size: 0.64rem; padding: 1px 5px; }
+  .badge-melhor-preco { font-size: 0.56rem; padding: 1px 4px; }
+
+  .posto-acoes-row {
+    padding: 0 10px 8px;
+    gap: 5px;
+  }
+
+  .posto-nav-btn {
+    font-size: 0.66rem;
+    padding: 3px 7px;
+  }
+
+  .posto-preco-data { font-size: 0.6rem; }
+
+  .postos-footer {
+    padding: 5px 10px;
+    font-size: 0.62rem;
+  }
+
+  .btn-voltar-postos {
+    font-size: 0.74rem;
+    padding: 4px 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .posto-meta { max-width: 55%; }
+  .posto-nome { font-size: 0.76rem; }
+  .preco-mini { font-size: 0.6rem; }
+  .posto-nav-btns { gap: 4px; }
+}
