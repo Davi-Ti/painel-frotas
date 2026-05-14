@@ -34,8 +34,9 @@ function formatarDataCTF(str) {
 
 function listaPrecos(posto) {
   const p = posto.precos || {};
+  const fontes = posto.fontes || {};
   return Object.entries(p)
-    .map(([k, v]) => ({ key: k, valor: v, ...COMBUSTIVEIS[k] }))
+    .map(([k, v]) => ({ key: k, valor: v, fonte: fontes[k] || 'bomba', ...COMBUSTIVEIS[k] }))
     .filter((x) => x.label)
     .sort((a, b) => a.prioridade - b.prioridade);
 }
@@ -238,9 +239,14 @@ export default function PostosPanel({
                 {pTemPreco ? (
                   <div className="posto-precos-grid">
                     {precos.map((p) => (
-                      <span key={p.key} className={`preco-chip ${p.cls}`} title={`${p.label}: ${formatarPreco(p.valor)}`}>
+                      <span
+                        key={p.key}
+                        className={`preco-chip ${p.cls}${p.fonte === 'acordo' ? ' com-acordo' : ''}`}
+                        title={`${p.label}: ${formatarPreco(p.valor)}${p.fonte === 'acordo' ? ' (preço com acordo CTF)' : ' (preço bomba publicado)'}`}
+                      >
                         <span className="preco-chip-label">{p.label}</span>
                         <span className="preco-chip-valor">{formatarPreco(p.valor)}</span>
+                        {p.fonte === 'acordo' && <span className="preco-chip-fonte" title="Preço com Acordo Especial de Preço (AEP)">★</span>}
                       </span>
                     ))}
                   </div>

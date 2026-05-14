@@ -1235,27 +1235,6 @@ async function carregarAbastecimentosCTF(maxRegs = 30000) {
   return todos;
 }
 
-// Paginação Template 1346 (RegMasterMacro) — mais cobertura de postos.
-async function carregarRegMasterMacroCTF(maxRegs = 50000) {
-  const todos = [];
-  let ponteiro = 0;
-  for (let pagina = 0; pagina < 10 && todos.length < maxRegs; pagina++) {
-    const data = await ctfSOAP(1346, 9999, ponteiro);
-    const rows = paraArray(data?.RegMasterMacro?.RegMasterMacroRow || []);
-    if (rows.length === 0) break;
-    todos.push(...rows);
-
-    let maxP = ponteiro;
-    for (const r of rows) {
-      const p = parseInt(Array.isArray(r.INDICE) ? r.INDICE[0] : (r.INDICE || r.COD));
-      if (!isNaN(p) && p > maxP) maxP = p;
-    }
-    if (maxP <= ponteiro) break;
-    ponteiro = maxP;
-  }
-  return todos;
-}
-
 async function ctfSOAP(codTemplate, qtd = 9999, ponteiro = 0) {
   return ctfSOAPCall(codTemplate, qtd, ponteiro);
 }
@@ -1268,8 +1247,12 @@ async function carregarPrecosCTF() {
   const sval = (v) => Array.isArray(v) ? String(v[0] || '') : String(v || '');
   const mapa = {};
 
-  // ── Template 9: preço REAL de abastecimentos (mais autoritativo) ──
-  log.info('CTF', 'Carregando abastecimentos (Template 9 — preços reais)...');
+  // ── Template 9: preço com Acordo AEP aplicado (preço FINAL pago pela frota) ──
+  // Fonte oficial conforme Manual CTF: campo VL_PRECO_AEP traz o preço com
+  // o desconto do Acordo Especial de Preço já aplicado. VL_PRECO_UNITARIO é
+  // o preço bomba bruto (sem desconto). Para a frota, VL_PRECO_AEP é o que
+  // o site CTF mostra como "preço CTF".
+  log.info('CTF', 'Carregando abastecimentos (Template 9 — preço com acordo AEP)...');
   let totalT9 = 0;
   try {
     const abastecimentos = await carregarAbastecimentosCTF(40000);
@@ -1280,18 +1263,25 @@ async function carregarPrecosCTF() {
       if (!id) continue;
       const cat = classificarCombustivel(sval(r.CD_COMBUSTIVEL), sval(r.DC_COMBUSTIVEL));
       if (!cat) continue;
-      const valor = parseFloat(sval(r.VL_PRECO_UNITARIO).replace(',', '.'));
-      if (!precoValido(cat, valor)) continue;
+
+      // Preferência: VL_PRECO_AEP (já com desconto) → fallback VL_PRECO_UNITARIO.
+      const valorAEP   = parseFloat(sval(r.VL_PRECO_AEP).replace(',', '.'));
+      const valorBruto = parseFloat(sval(r.VL_PRECO_UNITARIO).replace(',', '.'));
+      const valor = (precoValido(cat, valorAEP) ? valorAEP
+                   : precoValido(cat, valorBruto) ? valorBruto
+                   : null);
+      if (!valor) continue;
 
       const dtStr = sval(r.DT_EVENTO) || sval(r.DT_PROCESS) || null;
       const ts = parseDtBR(dtStr);
       if (!ts) continue;
 
-      if (!mapa[id]) mapa[id] = { _ts: {} };
+      if (!mapa[id]) mapa[id] = { _ts: {}, _src: {} };
       // Mantém o mais recente por categoria.
       if (!mapa[id]._ts[cat] || ts > mapa[id]._ts[cat]) {
         mapa[id][cat] = valor;
         mapa[id]._ts[cat] = ts;
+        mapa[id]._src[cat] = 'acordo'; // marcador: este preço veio de T9 (acordo aplicado)
         mapa[id][`${cat}_dt`] = dtStr;
         if (!mapa[id].atualizado_ts || ts > mapa[id].atualizado_ts) {
           mapa[id].atualizado_ts = ts;
@@ -1299,13 +1289,13 @@ async function carregarPrecosCTF() {
         }
       }
     }
-    log.info('CTF', `T9: ${totalT9} abastecimentos → ${Object.keys(mapa).length} postos com preço real`);
+    log.info('CTF', `T9: ${totalT9} abastecimentos → ${Object.keys(mapa).length} postos com preço c/acordo`);
   } catch (e) {
     log.warn('CTF', `T9 falhou (continua com T149): ${e.message}`);
   }
 
-  // ── Template 149: preço bomba (descritivo, fonte confiável) ──
-  log.info('CTF', 'Carregando preços (Template 149)...');
+  // ── Template 149: preço bomba publicado pelo posto (sem acordo) ──
+  log.info('CTF', 'Carregando preços bomba (Template 149)...');
   const data = await ctfSOAP(149);
   const rowsT149 = paraArray(data?.Preco_Bomba?.Preco_BombaRow || []);
   let usadosT149 = 0;
@@ -1321,12 +1311,18 @@ async function carregarPrecosCTF() {
     const dtStr = sval(r.DATA_MUDANCA) || null;
     const ts = parseDtBR(dtStr);
 
-    if (!mapa[id]) mapa[id] = { _ts: {} };
+    if (!mapa[id]) mapa[id] = { _ts: {}, _src: {} };
 
+    // T9 (acordo aplicado) tem prioridade sobre T149 (preço bomba), mesmo
+    // que T149 seja um pouco mais recente — VL_PRECO_AEP do T9 já é o
+    // preço efetivamente pago pela frota.
     const tsAtual = mapa[id]._ts[cat] || 0;
+    const fontePrev = mapa[id]._src[cat];
+    if (fontePrev === 'acordo') continue;
     if (ts > tsAtual) {
       mapa[id][cat] = valor;
       mapa[id]._ts[cat] = ts;
+      mapa[id]._src[cat] = 'bomba';
       mapa[id][`${cat}_dt`] = dtStr;
       usadosT149++;
       if (!mapa[id].atualizado_ts || ts > mapa[id].atualizado_ts) {
@@ -1336,62 +1332,24 @@ async function carregarPrecosCTF() {
     }
   }
 
-  // ── Template 1346: RegMasterMacro (fallback — só para postos sem nada) ──
-  // T1346 usa códigos curtos ambíguos (CODIGO_COMBUSTIVEL "S" que pode não
-  // bater com Template 39). Use só quando o posto não tem preço nas outras
-  // fontes, para evitar misclassificação.
-  log.info('CTF', 'Carregando RegMasterMacro (Template 1346)...');
-  let totalT1346 = 0;
-  let usadosT1346 = 0;
-  try {
-    const macros = await carregarRegMasterMacroCTF(50000);
-    totalT1346 = macros.length;
-
-    for (const r of macros) {
-      const id = normId(sval(r.NUMERO_POSTO));
-      if (!id) continue;
-      // Só usa T1346 para postos completamente sem preço.
-      if (mapa[id] && Object.keys(mapa[id]).some((k) => k !== '_ts' && !k.endsWith('_ts') && !k.endsWith('_dt') && k !== 'atualizado' && k !== 'atualizado_ts')) {
-        continue;
-      }
-      const cat = classificarCombustivel(sval(r.CODIGO_COMBUSTIVEL), '');
-      if (!cat) continue;
-      const valor = parseFloat(sval(r.VALOR_PRECO_LITRO).replace(',', '.'));
-      if (!precoValido(cat, valor)) continue;
-
-      const dtStr = sval(r.DATA_EVENTO) || sval(r.HoraEvento) || sval(r.DAT_PROCESSAMENTO) || null;
-      const ts = parseDtBR(dtStr);
-      if (!ts) continue;
-
-      if (!mapa[id]) mapa[id] = { _ts: {} };
-      if (!mapa[id]._ts[cat] || ts > mapa[id]._ts[cat]) {
-        mapa[id][cat] = valor;
-        mapa[id]._ts[cat] = ts;
-        mapa[id][`${cat}_dt`] = dtStr;
-        usadosT1346++;
-        if (!mapa[id].atualizado_ts || ts > mapa[id].atualizado_ts) {
-          mapa[id].atualizado_ts = ts;
-          mapa[id].atualizado = dtStr;
-        }
-      }
-    }
-    log.info('CTF', `T1346: ${totalT1346} linhas → ${usadosT1346} usadas (postos sem T9/T149)`);
-  } catch (e) {
-    log.warn('CTF', `T1346 falhou: ${e.message}`);
-  }
-
-  // Limpa metadados internos antes de retornar.
+  // Limpa metadados internos antes de retornar. Mantém _src (fonte) → migra
+  // para um dicionário público "fontes" que o frontend pode consultar.
   for (const id in mapa) {
+    if (mapa[id]._src) {
+      mapa[id].fontes = { ...mapa[id]._src };
+    }
     delete mapa[id]._ts;
+    delete mapa[id]._src;
     delete mapa[id].atualizado_ts;
   }
 
+  const totalAcordo = Object.values(mapa).reduce((acc, m) => acc + Object.values(m.fontes || {}).filter((f) => f === 'acordo').length, 0);
+  const totalBomba  = Object.values(mapa).reduce((acc, m) => acc + Object.values(m.fontes || {}).filter((f) => f === 'bomba').length, 0);
+
   ctfCache.precos = mapa;
   ctfCache.precosTs = agora;
-  log.info('CTF', `Preços consolidados: ${Object.keys(mapa).length} postos | T9=${totalT9} | T149=${rowsT149.length} (${usadosT149} usadas) | T1346=${totalT1346} (${usadosT1346} usadas)`);
+  log.info('CTF', `Preços consolidados: ${Object.keys(mapa).length} postos | T9=${totalT9} (${totalAcordo} preços c/ acordo) | T149=${rowsT149.length} (${usadosT149} preços bomba)`);
 
-  // Adiciona timestamp da consolidação ao mapa.
-  void usadosT1346;
   return mapa;
 }
 
@@ -1487,12 +1445,17 @@ function montarPostoItem(posto, coord, distancia, precosMap) {
   const endStr = [posto.endereco, posto.bairro, posto.cidade, posto.uf]
     .filter(Boolean).filter((s, i, a) => a.indexOf(s) === i).join(', ');
 
-  // Coleta todos os preços disponíveis.
+  // Coleta todos os preços disponíveis + suas fontes.
   const precos = {};
+  const fontes = {};
   for (const cat of CATEGORIAS_PRECO) {
-    if (preco[cat]) precos[cat] = preco[cat];
+    if (preco[cat]) {
+      precos[cat] = preco[cat];
+      fontes[cat] = (preco.fontes || {})[cat] || 'bomba';
+    }
   }
   const temPrecoFlag = Object.keys(precos).length > 0;
+  const temAcordo = Object.values(fontes).some((f) => f === 'acordo');
 
   return {
     id: `ctf_${posto.id}`,
@@ -1506,6 +1469,8 @@ function montarPostoItem(posto, coord, distancia, precosMap) {
     cidade: posto.cidade,
     uf: posto.uf,
     precos,
+    fontes,
+    temAcordo,
     // Campos legados (compatibilidade com o popup do mapa).
     preco_diesel: preco.diesel || null,
     preco_diesel_s10: preco.diesel_s10 || null,

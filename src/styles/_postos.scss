@@ -386,6 +386,18 @@
     font-weight: 700;
   }
 
+  .preco-chip-fonte {
+    font-size: 0.7rem;
+    margin-left: 1px;
+    color: #fbbf24;
+    text-shadow: 0 0 4px rgba(#fbbf24, 0.6);
+  }
+
+  // Preço veio de Acordo Especial CTF — destaca a borda
+  &.com-acordo {
+    box-shadow: 0 0 0 1px rgba(#fbbf24, 0.45);
+  }
+
   &.diesel {
     background: rgba(#f59e0b, 0.13);
     color: #fbbf24;
