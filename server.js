@@ -1216,6 +1216,16 @@ function parseDtBR(s) {
   return new Date(+m[3], +m[2] - 1, +m[1], +m[4] || 0, +m[5] || 0, +m[6] || 0).getTime();
 }
 
+// Janela de validade do preço: 90 dias. Combustível tem volatilidade alta
+// no Brasil — registros mais antigos refletem realidade do passado, não
+// servem para decisão operacional. Postos cujo último preço passou desse
+// limite são tratados como "sem preço".
+const PRECO_VALIDADE_MS = 90 * 24 * 60 * 60 * 1000;
+function precoRecente(ts) {
+  if (!ts) return false;
+  return (Date.now() - ts) <= PRECO_VALIDADE_MS;
+}
+
 // Limites mínimos por combustível para descartar sentinelas (R$ 1,000 exato),
 // preços históricos antiquíssimos e valores claramente cadastrados errados.
 // Cobre o cenário brasileiro 2026 — preços reais nunca caem abaixo desses limites.
@@ -1341,7 +1351,7 @@ async function carregarPrecosCTF() {
 
       const dtStr = sval(r.DT_EVENTO) || sval(r.DT_PROCESS) || null;
       const ts = parseDtBR(dtStr);
-      if (!ts) continue;
+      if (!ts || !precoRecente(ts)) continue;
 
       if (!mapa[id]) mapa[id] = { _ts: {}, _src: {} };
       // Mantém o mais recente por categoria.
@@ -1377,6 +1387,7 @@ async function carregarPrecosCTF() {
 
     const dtStr = sval(r.DATA_MUDANCA) || null;
     const ts = parseDtBR(dtStr);
+    if (!ts || !precoRecente(ts)) continue;
 
     if (!mapa[id]) mapa[id] = { _ts: {}, _src: {} };
 
@@ -1673,15 +1684,30 @@ app.get('/api/frota', (_req, res) => {
 });
 
 app.get('/api/health', (_req, res) => {
+  const postosCount = ctfCache.postos ? Object.keys(ctfCache.postos).length : 0;
+  const precosCount = ctfCache.precos ? Object.keys(ctfCache.precos).length : 0;
+  const geocPostos = Object.keys(ctfCache.geocodePosto).length;
+  const geocPrecisos = Object.values(ctfCache.geocodePosto)
+    .filter((v) => v?.fonte === 'endereco' || v?.fonte === 'bairro').length;
+
   res.json({
     status: 'ok',
     uptime: Math.round(process.uptime()),
-    veiculos: Object.keys(db.veiculos).length,
-    posicoes: Object.keys(db.posicoes).length,
-    motoristas: Object.keys(db.motoristas).length,
-    ultimoMId: db.ultimoMId,
-    ciclos: db.contadorCiclos,
-    ultimaAtualizacao: db.ultimaAtualizacao,
+    frota: {
+      veiculos: Object.keys(db.veiculos).length,
+      posicoes: Object.keys(db.posicoes).length,
+      motoristas: Object.keys(db.motoristas).length,
+      ultimoMId: db.ultimoMId,
+      ciclos: db.contadorCiclos,
+      ultimaAtualizacao: db.ultimaAtualizacao,
+    },
+    ctf: {
+      postosCredenciados: postosCount,
+      postosComPrecoFresh: precosCount,        // janela 90 dias
+      janelaPrecoDias: PRECO_VALIDADE_MS / (24 * 60 * 60 * 1000),
+      geocodPostosPrecisos: geocPrecisos,
+      geocodPostosTotal: geocPostos,
+    },
     memoria: {
       rss: Math.round(process.memoryUsage().rss / 1024 / 1024) + ' MB',
       heap: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + ' MB',

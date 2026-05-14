@@ -590,6 +590,12 @@
   font-size: 0.65rem;
   color: $texto-muted;
   white-space: nowrap;
+
+  em {
+    font-style: normal;
+    color: $cor-verde;
+    font-weight: 600;
+  }
 }
 
 // ── Formulário de preço ───────────────────────────────────────────

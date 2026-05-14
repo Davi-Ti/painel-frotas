@@ -32,6 +32,19 @@ function formatarDataCTF(str) {
   return str.split(' ')[0] || null;
 }
 
+function idadeRelativa(str) {
+  if (!str) return '';
+  const m = String(str).match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if (!m) return '';
+  const ts = new Date(+m[3], +m[2] - 1, +m[1]).getTime();
+  const dias = Math.floor((Date.now() - ts) / (24 * 60 * 60 * 1000));
+  if (dias <= 0) return 'hoje';
+  if (dias === 1) return 'ontem';
+  if (dias < 7) return `há ${dias}d`;
+  if (dias < 30) return `há ${Math.floor(dias / 7)}sem`;
+  return `há ${Math.floor(dias / 30)}m`;
+}
+
 function listaPrecos(posto) {
   const p = posto.precos || {};
   const fontes = posto.fontes || {};
@@ -268,8 +281,8 @@ export default function PostosPanel({
                 {/* Linha 5: data + botões */}
                 <div className="posto-acoes-row">
                   {posto.preco_atualizado && (
-                    <span className="posto-preco-data">
-                      📋 CTF · {formatarDataCTF(posto.preco_atualizado)}
+                    <span className="posto-preco-data" title={`Última atualização: ${posto.preco_atualizado}`}>
+                      📋 {formatarDataCTF(posto.preco_atualizado)} · <em>{idadeRelativa(posto.preco_atualizado)}</em>
                     </span>
                   )}
                   {veiculo?.lat && veiculo?.lon && (

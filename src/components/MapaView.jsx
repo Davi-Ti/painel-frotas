@@ -250,8 +250,8 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
             </Marker>
           ))}
 
-          {/* Marcadores de postos de combustível */}
-          {modoPostos && postos.map((posto) => (
+          {/* Marcadores de postos de combustível — só com preço recente */}
+          {modoPostos && postos.filter((p) => p.temPreco).map((posto) => (
             <Marker
               key={posto.id}
               position={[posto.lat, posto.lon]}
@@ -281,8 +281,8 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
         {modoPostos && (
           <div className="mapa-legenda">
             <div className="legenda-item"><span style={{ fontSize: '1rem' }}>🚛</span> Veículo</div>
-            <div className="legenda-item"><span style={{ fontSize: '1rem' }}>⛽</span> Posto</div>
-            <div className="legenda-item" style={{ color: '#f59e0b' }}>{postos.length} encontrados</div>
+            <div className="legenda-item"><span style={{ fontSize: '1rem' }}>⛽</span> Posto c/ preço</div>
+            <div className="legenda-item" style={{ color: '#f59e0b' }}>{postos.filter((p) => p.temPreco).length} c/ preço · {postos.length} total</div>
           </div>
         )}
 
