@@ -1616,7 +1616,10 @@ app.get('/api/postos', async (req, res) => {
       if (!geocodeAtivo) processarFilaGeocode();
     }
 
-    // 2) Função que coleta postos dentro de um raio dado.
+    // 2) Função que coleta postos no raio. Mantém apenas postos onde a
+    // frota efetivamente paga via aplicativo CTF (fonte=acordo no T9). Postos
+    // somente do T149 são preços-bomba publicados mas que a frota nunca usou
+    // — não há garantia de que aceitam pagamento via app.
     const coletar = (raioKm) => {
       const lista = [];
       for (const posto of Object.values(postosMap)) {
@@ -1624,27 +1627,28 @@ app.get('/api/postos', async (req, res) => {
         if (!coord) continue;
         const dist = calcularDistanciaKm(latN, lonN, coord.lat, coord.lon);
         if (dist > raioKm) continue;
-        lista.push(montarPostoItem(posto, coord, dist, precosMap));
+        const item = montarPostoItem(posto, coord, dist, precosMap);
+        if (!item.temAcordo) continue; // só postos que aceitam pagamento via app
+        lista.push(item);
       }
       return lista;
     };
 
     let raioKm = raioInicial;
     let postos = coletar(raioKm);
-    let comPreco = postos.filter((p) => p.temPreco).length;
+    let comPreco = postos.length;
     let expandiuAuto = false;
 
-    // 3) Auto-expansão: se NENHUM posto com preço foi achado, aumenta raio até achar
-    // (até 150km), pra UX nunca dar “nenhum com preço” sem mostrar alternativa.
+    // 3) Auto-expansão: se NENHUM posto com app foi achado, aumenta raio
+    // até achar (até 150km).
     if (autoExpandir && comPreco === 0) {
       for (const raioTeste of [Math.max(raioKm, 30), 60, 100, 150]) {
         if (raioTeste <= raioKm) continue;
         const lista = coletar(raioTeste);
-        const cp = lista.filter((p) => p.temPreco).length;
-        if (cp > 0) {
+        if (lista.length > 0) {
           raioKm = raioTeste;
           postos = lista;
-          comPreco = cp;
+          comPreco = lista.length;
           expandiuAuto = true;
           break;
         }
