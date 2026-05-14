@@ -840,6 +840,18 @@ function limparEndereco(endereco) {
     .trim();
 }
 
+// Versão limpa para exibição (remove "S/N", "0" terminal residual, dois pontos).
+function enderecoDisplay(endereco) {
+  if (!endereco) return '';
+  return String(endereco)
+    .replace(/\bS\/N(?=\b)\s*/gi, '')
+    .replace(/\s+0(?=\s|,|$)/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*,\s*,\s*/g, ', ')
+    .replace(/^[,\s]+|[,\s]+$/g, '')
+    .trim();
+}
+
 // Adiciona jitter determinístico (~300m–2.5km) ao redor de um centroide,
 // para que postos da mesma cidade não se sobreponham no mapa e distâncias
 // fiquem visualmente distintas até o geocoding por endereço resolver.
@@ -970,30 +982,68 @@ async function geocodificarCidade(cidade, uf) {
   return null;
 }
 
-// Geocoding por endereço completo via Nominatim — retorna { lat, lon } ou null.
-async function geocodificarEndereco(endereco, bairro, cidade, uf) {
-  const tentativas = [
-    // 1) Endereço + cidade
-    { q: `${limparEndereco(endereco)}, ${cidade}, ${uf}, Brasil` },
-    // 2) Bairro + cidade
-    bairro ? { q: `${bairro}, ${cidade}, ${uf}, Brasil` } : null,
-  ].filter(Boolean);
+// Compara cidade retornada do Nominatim com a esperada (case-insensitive,
+// remove acentos). Aceita variações: "SALVADOR" ~ "Salvador" ~ "Salvador-BA".
+function cidadeBate(retornada, esperada) {
+  if (!retornada || !esperada) return false;
+  return normalizarNome(retornada) === normalizarNome(esperada);
+}
+
+// Geocoding por endereço via Nominatim com validação de cidade.
+// Ordem de tentativas (mais específica → mais ampla):
+//   1) FATEND + bairro + cidade + UF (mais preciso)
+//   2) Endereço sem número + bairro + cidade + UF
+//   3) Bairro + cidade + UF (centroide do bairro — bom para 'S/N')
+// Retorna null se Nominatim devolver coordenada em outra cidade.
+async function geocodificarEndereco(posto) {
+  const { endereco, enderecoSimples, bairro, cidade, uf } = posto;
+  const cidadeUf = `${cidade}, ${uf}, Brasil`;
+
+  const tentativas = [];
+  if (endereco) tentativas.push({
+    q: bairro
+      ? `${limparEndereco(endereco)}, ${bairro}, ${cidadeUf}`
+      : `${limparEndereco(endereco)}, ${cidadeUf}`,
+    nivel: 'endereco',
+  });
+  if (enderecoSimples && enderecoSimples !== endereco) tentativas.push({
+    q: bairro
+      ? `${limparEndereco(enderecoSimples)}, ${bairro}, ${cidadeUf}`
+      : `${limparEndereco(enderecoSimples)}, ${cidadeUf}`,
+    nivel: 'endereco_simples',
+  });
+  if (bairro) tentativas.push({
+    q: `${bairro}, ${cidadeUf}`,
+    nivel: 'bairro',
+  });
 
   for (const t of tentativas) {
     try {
-      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(t.q)}&format=json&limit=1&countrycodes=br`;
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(t.q)}&format=json&limit=1&addressdetails=1&countrycodes=br`;
       const resp = await fetch(url, {
         headers: { 'User-Agent': 'PainelFrotas/3.0 (fleet management; coopertruni)' },
       });
-      if (!resp.ok) continue;
+      if (!resp.ok) { await delay(800); continue; }
       const data = await resp.json();
       if (data && data[0]) {
         const lat = parseFloat(data[0].lat);
         const lon = parseFloat(data[0].lon);
-        if (!isNaN(lat) && !isNaN(lon)) return { lat, lon };
+        if (isNaN(lat) || isNaN(lon)) { await delay(800); continue; }
+
+        // Validação: cidade retornada deve bater com a esperada.
+        const a = data[0].address || {};
+        const cidadeRetornada = a.city || a.town || a.municipality || a.village || a.county;
+        const ufRetornado = a.state || a.state_district;
+        if (!cidadeBate(cidadeRetornada, cidade)) {
+          await delay(800);
+          continue;
+        }
+
+        // Sucesso — devolve com indicação do nível obtido.
+        return { lat, lon, nivel: t.nivel };
       }
     } catch {}
-    await delay(800); // respeita limite Nominatim
+    await delay(800);
   }
   return null;
 }
@@ -1033,12 +1083,14 @@ async function processarFilaGeocodePostos() {
     if (!posto || !posto.id) continue;
     if (ctfCache.geocodePosto[posto.id]?.fonte === 'endereco') continue;
 
-    const coord = await geocodificarEndereco(posto.endereco, posto.bairro, posto.cidade, posto.uf);
+    const coord = await geocodificarEndereco(posto);
     if (coord) {
-      ctfCache.geocodePosto[posto.id] = { ...coord, fonte: 'endereco' };
+      // Nivel: 'endereco' (rua específica) ou 'endereco_simples' = preciso
+      //        'bairro' = só centroide do bairro (impreciso mas correto)
+      const fonte = coord.nivel === 'bairro' ? 'bairro' : 'endereco';
+      ctfCache.geocodePosto[posto.id] = { lat: coord.lat, lon: coord.lon, fonte };
       sucessos++;
     } else {
-      // mantém entrada existente (cidade/jitter) — só marca como tentado
       const atual = ctfCache.geocodePosto[posto.id] || {};
       ctfCache.geocodePosto[posto.id] = { ...atual, tentadoEndereco: true };
     }
@@ -1122,16 +1174,31 @@ async function carregarPostosCTF() {
   const normId = (s) => String(s || '').trim().replace(/^0+(?=\d)/, '');
   const mapa = {};
   for (const r of rows) {
+    // Manual CTF: ATIVO=S e STATUS=4 indicam posto credenciado e ativo.
     if (strVal(r.ATIVO) !== 'S') continue;
+    const status = strVal(r.STATUS);
+    if (status && status !== '4') continue; // Status diferente de "Ativo Cliente"
+    // Se tem data de desativação, ignora
+    if (strVal(r.DAT_DESAT) || strVal(r.DATDESA)) continue;
+
     const id = normId(strVal(r.COD));
     if (!id) continue;
+
+    // FATEND geralmente tem o número da rua (ENDERECO costuma vir "S/N"
+    // ou sem número). Preferimos FATEND quando ele complementa ENDERECO.
+    const enderecoBase = strVal(r.ENDERECO);
+    const fatend = strVal(r.FATEND);
+    const enderecoCompleto = (fatend && fatend.length > enderecoBase.length) ? fatend : enderecoBase;
+
     mapa[id] = {
       id,
       nome: (strVal(r.FANTASIA) || strVal(r.APELIDO) || strVal(r.RAZAO) || 'Posto CTF'),
-      endereco: strVal(r.ENDERECO),
+      endereco: enderecoCompleto,
+      enderecoSimples: enderecoBase,
       bairro: strVal(r.BAIRRO),
       cidade: strVal(r.CIDADE).toUpperCase(),
       uf: strVal(Array.isArray(r.UF) ? r.UF[0] : r.UF).toUpperCase().slice(0, 2),
+      cep: strVal(r.CEP).replace(/\D/g, '').slice(0, 8),
     };
   }
 
@@ -1442,8 +1509,10 @@ const CATEGORIAS_PRECO = [
 // Constrói um item de posto pronto pro frontend.
 function montarPostoItem(posto, coord, distancia, precosMap) {
   const preco = precosMap[posto.id] || {};
-  const endStr = [posto.endereco, posto.bairro, posto.cidade, posto.uf]
-    .filter(Boolean).filter((s, i, a) => a.indexOf(s) === i).join(', ');
+  const endStr = enderecoDisplay(
+    [posto.endereco, posto.bairro, posto.cidade, posto.uf]
+      .filter(Boolean).filter((s, i, a) => a.indexOf(s) === i).join(', ')
+  );
 
   // Coleta todos os preços disponíveis + suas fontes.
   const precos = {};
@@ -1548,10 +1617,11 @@ app.get('/api/postos', async (req, res) => {
 
     postos.sort((a, b) => a.distancia - b.distancia);
 
-    // 4) Agenda geocoding por endereço para postos visíveis sem refinamento.
-    // Postos visíveis vão pro INÍCIO da fila (alta prioridade).
+    // 4) Agenda geocoding por endereço para postos visíveis ainda imprecisos
+    // (qualquer fonte diferente de 'endereco' ou 'bairro' precisa refino).
+    const PRECISO = new Set(['endereco', 'bairro']);
     const candidatos = postos
-      .filter((p) => p.geocoded_por !== 'endereco')
+      .filter((p) => !PRECISO.has(p.geocoded_por))
       .slice(0, 60)
       .map((p) => postosMap[p.ctfId])
       .filter(Boolean);
@@ -1560,13 +1630,13 @@ app.get('/api/postos', async (req, res) => {
       const jaEnfileirados = new Set(geocodePostoQueue.map((p) => p.id));
       const novos = [];
       for (const c of candidatos) {
+        const cur = ctfCache.geocodePosto[c.id];
         if (!jaEnfileirados.has(c.id) &&
-            ctfCache.geocodePosto[c.id]?.fonte !== 'endereco' &&
-            !ctfCache.geocodePosto[c.id]?.tentadoEndereco) {
+            !PRECISO.has(cur?.fonte) &&
+            !cur?.tentadoEndereco) {
           novos.push(c);
         }
       }
-      // unshift para prioridade (postos da região visível vêm antes).
       if (novos.length > 0) geocodePostoQueue.unshift(...novos);
       if (!geocodePostoAtivo) processarFilaGeocodePostos();
     }
@@ -1574,7 +1644,8 @@ app.get('/api/postos', async (req, res) => {
     const geocodadas = Object.values(ctfCache.geocode).filter(Boolean).length;
     const totalCidades = Object.keys(ctfCache.geocode).length;
     const totalPostosGeoc = Object.keys(ctfCache.geocodePosto).length;
-    const porEndereco = Object.values(ctfCache.geocodePosto).filter((v) => v?.fonte === 'endereco').length;
+    const porEndereco = Object.values(ctfCache.geocodePosto)
+      .filter((v) => v?.fonte === 'endereco' || v?.fonte === 'bairro').length;
 
     log.info('CTF Postos',
       `${postos.length} em ${raioKm}km (preço:${comPreco}, exp:${expandiuAuto}) | geoc cidades:${geocodadas}/${totalCidades} postos:${porEndereco}/${totalPostosGeoc}`
