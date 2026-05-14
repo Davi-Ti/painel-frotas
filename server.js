@@ -1216,11 +1216,11 @@ function parseDtBR(s) {
   return new Date(+m[3], +m[2] - 1, +m[1], +m[4] || 0, +m[5] || 0, +m[6] || 0).getTime();
 }
 
-// Janela de validade do preço: 90 dias. Combustível tem volatilidade alta
+// Janela de validade do preço: 30 dias. Combustível tem volatilidade alta
 // no Brasil — registros mais antigos refletem realidade do passado, não
 // servem para decisão operacional. Postos cujo último preço passou desse
 // limite são tratados como "sem preço".
-const PRECO_VALIDADE_MS = 90 * 24 * 60 * 60 * 1000;
+const PRECO_VALIDADE_MS = 30 * 24 * 60 * 60 * 1000;
 function precoRecente(ts) {
   if (!ts) return false;
   return (Date.now() - ts) <= PRECO_VALIDADE_MS;
