@@ -1410,6 +1410,31 @@ async function carregarPrecosCTF() {
     }
   }
 
+  // Sanidade física: aditivado SEMPRE custa mais (ou igual) que a versão
+  // comum. Se o aditivado está mais barato no mesmo posto, é leitura
+  // desatualizada de outra época — descarta a entrada anômala.
+  for (const id in mapa) {
+    const m = mapa[id];
+    if (m.diesel_s10 && m.diesel_s10_aditivado && m.diesel_s10_aditivado < m.diesel_s10) {
+      delete m.diesel_s10_aditivado;
+      delete m.diesel_s10_aditivado_dt;
+      if (m._src) delete m._src.diesel_s10_aditivado;
+      if (m._ts) delete m._ts.diesel_s10_aditivado;
+    }
+    if (m.diesel && m.diesel_aditivado && m.diesel_aditivado < m.diesel) {
+      delete m.diesel_aditivado;
+      delete m.diesel_aditivado_dt;
+      if (m._src) delete m._src.diesel_aditivado;
+      if (m._ts) delete m._ts.diesel_aditivado;
+    }
+    if (m.gasolina && m.gasolina_aditivada && m.gasolina_aditivada < m.gasolina) {
+      delete m.gasolina_aditivada;
+      delete m.gasolina_aditivada_dt;
+      if (m._src) delete m._src.gasolina_aditivada;
+      if (m._ts) delete m._ts.gasolina_aditivada;
+    }
+  }
+
   // Limpa metadados internos antes de retornar. Mantém _src (fonte) → migra
   // para um dicionário público "fontes" que o frontend pode consultar.
   for (const id in mapa) {

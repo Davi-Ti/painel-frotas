@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { formatarPlaca } from '../utils/helpers';
 
+// Frota é diesel — só interessa diesel (todas variantes) e ARLA.
+// Outros combustíveis vêm na resposta da API mas não são renderizados.
 const COMBUSTIVEIS = {
   diesel_s10:           { label: 'S10',         cls: 'diesel-s10', prioridade: 1, group: 'diesel' },
   diesel:               { label: 'Diesel',      cls: 'diesel',     prioridade: 2, group: 'diesel' },
@@ -8,12 +10,6 @@ const COMBUSTIVEIS = {
   diesel_aditivado:     { label: 'Diesel Adit', cls: 'diesel',     prioridade: 4, group: 'diesel' },
   diesel_s50:           { label: 'S50',         cls: 'diesel',     prioridade: 5, group: 'diesel' },
   arla:                 { label: 'ARLA',        cls: 'arla',       prioridade: 6, group: 'arla' },
-  gasolina:             { label: 'Gas',         cls: 'gasolina',   prioridade: 7, group: 'gasolina' },
-  gasolina_aditivada:   { label: 'Gas Adit',    cls: 'gasolina',   prioridade: 8, group: 'gasolina' },
-  gasolina_premium:     { label: 'Premium',     cls: 'gasolina',   prioridade: 9, group: 'gasolina' },
-  etanol:               { label: 'Etanol',      cls: 'etanol',     prioridade: 10, group: 'etanol' },
-  etanol_aditivado:     { label: 'Et Adit',     cls: 'etanol',     prioridade: 11, group: 'etanol' },
-  gnv:                  { label: 'GNV',         cls: 'gnv',        prioridade: 12, group: 'gnv' },
 };
 
 function formatarDistancia(km) {
