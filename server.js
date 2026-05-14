@@ -1058,7 +1058,7 @@ async function processarFilaGeocodePostos() {
   geocodePostoAtivo = false;
 }
 
-async function ctfSOAP(codTemplate, qtd = 9999) {
+async function ctfSOAPCall(codTemplate, qtd = 9999, ponteiro = 0) {
   const envelope = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Header>
@@ -1070,7 +1070,7 @@ async function ctfSOAP(codTemplate, qtd = 9999) {
   <soap:Body>
     <RecuperarCopia xmlns="http://tempuri.org/">
       <parametroCopia>
-        <Ponteiro>0</Ponteiro>
+        <Ponteiro>${ponteiro}</Ponteiro>
         <CodTemplate>${codTemplate}</CodTemplate>
         <QtdRegistro>${qtd}</QtdRegistro>
       </parametroCopia>
@@ -1141,58 +1141,218 @@ async function carregarPostosCTF() {
   return mapa;
 }
 
+// Parse data dd/MM/yyyy HH:mm:ss → timestamp (ms). Retorna 0 em falha.
+function parseDtBR(s) {
+  if (!s) return 0;
+  const m = String(s).match(/(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (!m) return 0;
+  return new Date(+m[3], +m[2] - 1, +m[1], +m[4] || 0, +m[5] || 0, +m[6] || 0).getTime();
+}
+
+// Decodificador CD_COMBUSTIVEL → categoria do nosso schema interno.
+// Baseado no Template 39 do CTF. Mapeia tudo para 6 categorias.
+function classificarCombustivel(codigo, nomeFallback = '') {
+  const cd = String(codigo || '').trim().toUpperCase();
+  const nm = String(nomeFallback || '').trim().toUpperCase();
+
+  // Pelo código (T9)
+  switch (cd) {
+    case 'A': return 'diesel';
+    case 'H': return 'diesel_aditivado';
+    case 'R': return 'diesel_s50';
+    case 'S': return 'diesel_s10';
+    case 'T': return 'diesel_s10_aditivado';
+    case 'B': return 'gasolina';
+    case 'D': return 'gasolina_aditivada';
+    case 'F': return 'gasolina_premium';
+    case 'C': return 'etanol';
+    case 'E': return 'etanol_aditivado';
+    case 'U': case 'V': return 'arla';
+    case 'G': return 'gnv';
+  }
+  // Pelo nome (T149)
+  if (nm === 'DIESEL S10' || nm === 'DIESEL S-10') return 'diesel_s10';
+  if (nm === 'DIESEL S10 ADITIVADO') return 'diesel_s10_aditivado';
+  if (nm === 'DIESEL S50') return 'diesel_s50';
+  if (nm === 'DIESEL ADITIVADO') return 'diesel_aditivado';
+  if (nm.startsWith('DIESEL')) return 'diesel';
+  if (nm === 'GASOLINA ADITIVADA') return 'gasolina_aditivada';
+  if (nm === 'GASOLINA PREMIUM') return 'gasolina_premium';
+  if (nm.startsWith('GASOLINA')) return 'gasolina';
+  if (nm === 'ALCOOL ADITIVADO') return 'etanol_aditivado';
+  if (nm.startsWith('ALCOOL') || nm.startsWith('ETANOL')) return 'etanol';
+  if (nm.includes('ARLA')) return 'arla';
+  if (nm.includes('GAS') && nm.includes('VEIC')) return 'gnv';
+  return null;
+}
+
+// Paginação Template 9 (Abastecimentos) — usa PONTEIRO crescente.
+async function carregarAbastecimentosCTF(maxRegs = 30000) {
+  const todos = [];
+  let ponteiro = 0;
+  for (let pagina = 0; pagina < 20 && todos.length < maxRegs; pagina++) {
+    const data = await ctfSOAP(9, 9999, ponteiro);
+    const rows = paraArray(data?.ABASTECIMENTOS?.ABASTECIMENTOSRow || []);
+    if (rows.length === 0) break;
+    todos.push(...rows);
+
+    let maxP = ponteiro;
+    for (const r of rows) {
+      const p = parseInt(Array.isArray(r.PONTEIRO) ? r.PONTEIRO[0] : r.PONTEIRO);
+      if (!isNaN(p) && p > maxP) maxP = p;
+    }
+    if (maxP <= ponteiro) break;
+    ponteiro = maxP;
+  }
+  return todos;
+}
+
+// Paginação Template 1346 (RegMasterMacro) — mais cobertura de postos.
+async function carregarRegMasterMacroCTF(maxRegs = 50000) {
+  const todos = [];
+  let ponteiro = 0;
+  for (let pagina = 0; pagina < 10 && todos.length < maxRegs; pagina++) {
+    const data = await ctfSOAP(1346, 9999, ponteiro);
+    const rows = paraArray(data?.RegMasterMacro?.RegMasterMacroRow || []);
+    if (rows.length === 0) break;
+    todos.push(...rows);
+
+    let maxP = ponteiro;
+    for (const r of rows) {
+      const p = parseInt(Array.isArray(r.INDICE) ? r.INDICE[0] : (r.INDICE || r.COD));
+      if (!isNaN(p) && p > maxP) maxP = p;
+    }
+    if (maxP <= ponteiro) break;
+    ponteiro = maxP;
+  }
+  return todos;
+}
+
+async function ctfSOAP(codTemplate, qtd = 9999, ponteiro = 0) {
+  return ctfSOAPCall(codTemplate, qtd, ponteiro);
+}
+
 async function carregarPrecosCTF() {
   const agora = Date.now();
   if (ctfCache.precos && agora - ctfCache.precosTs < CTF_TTL_PRECOS) return ctfCache.precos;
 
+  const normId = (s) => String(s || '').trim().replace(/^0+(?=\d)/, '');
+  const sval = (v) => Array.isArray(v) ? String(v[0] || '') : String(v || '');
+  const mapa = {};
+
+  // ── Template 9: preço REAL de abastecimentos (mais autoritativo) ──
+  log.info('CTF', 'Carregando abastecimentos (Template 9 — preços reais)...');
+  let totalT9 = 0;
+  try {
+    const abastecimentos = await carregarAbastecimentosCTF(40000);
+    totalT9 = abastecimentos.length;
+
+    for (const r of abastecimentos) {
+      const id = normId(sval(r.COD_POSTO));
+      if (!id) continue;
+      const cat = classificarCombustivel(sval(r.CD_COMBUSTIVEL), sval(r.DC_COMBUSTIVEL));
+      if (!cat) continue;
+      const valor = parseFloat(sval(r.VL_PRECO_UNITARIO).replace(',', '.'));
+      if (!valor || valor < 0.3) continue;
+
+      const dtStr = sval(r.DT_EVENTO) || sval(r.DT_PROCESS) || null;
+      const ts = parseDtBR(dtStr);
+      if (!ts) continue;
+
+      if (!mapa[id]) mapa[id] = { _ts: {} };
+      // Mantém o mais recente por categoria.
+      if (!mapa[id]._ts[cat] || ts > mapa[id]._ts[cat]) {
+        mapa[id][cat] = valor;
+        mapa[id]._ts[cat] = ts;
+        mapa[id][`${cat}_dt`] = dtStr;
+        if (!mapa[id].atualizado_ts || ts > mapa[id].atualizado_ts) {
+          mapa[id].atualizado_ts = ts;
+          mapa[id].atualizado = dtStr;
+        }
+      }
+    }
+    log.info('CTF', `T9: ${totalT9} abastecimentos → ${Object.keys(mapa).length} postos com preço real`);
+  } catch (e) {
+    log.warn('CTF', `T9 falhou (continua com T149): ${e.message}`);
+  }
+
+  // ── Template 1346: RegMasterMacro (cobertura adicional via master/bomba) ──
+  log.info('CTF', 'Carregando RegMasterMacro (Template 1346)...');
+  let totalT1346 = 0;
+  try {
+    const macros = await carregarRegMasterMacroCTF(50000);
+    totalT1346 = macros.length;
+
+    for (const r of macros) {
+      const id = normId(sval(r.NUMERO_POSTO));
+      if (!id) continue;
+      const cat = classificarCombustivel(sval(r.CODIGO_COMBUSTIVEL), '');
+      if (!cat) continue;
+      const valor = parseFloat(sval(r.VALOR_PRECO_LITRO).replace(',', '.'));
+      if (!valor || valor < 0.3) continue;
+
+      const dtStr = sval(r.DATA_EVENTO) || sval(r.HoraEvento) || sval(r.DAT_PROCESSAMENTO) || null;
+      const ts = parseDtBR(dtStr);
+      if (!ts) continue;
+
+      if (!mapa[id]) mapa[id] = { _ts: {} };
+      if (!mapa[id]._ts[cat] || ts > mapa[id]._ts[cat]) {
+        mapa[id][cat] = valor;
+        mapa[id]._ts[cat] = ts;
+        mapa[id][`${cat}_dt`] = dtStr;
+        if (!mapa[id].atualizado_ts || ts > mapa[id].atualizado_ts) {
+          mapa[id].atualizado_ts = ts;
+          mapa[id].atualizado = dtStr;
+        }
+      }
+    }
+    log.info('CTF', `T1346: ${totalT1346} linhas → ${Object.keys(mapa).length} postos no acumulado`);
+  } catch (e) {
+    log.warn('CTF', `T1346 falhou: ${e.message}`);
+  }
+
+  // ── Template 149: preço bomba (fallback para postos sem abastecimento) ──
   log.info('CTF', 'Carregando preços (Template 149)...');
   const data = await ctfSOAP(149);
-  const rows = paraArray(data?.Preco_Bomba?.Preco_BombaRow || []);
+  const rowsT149 = paraArray(data?.Preco_Bomba?.Preco_BombaRow || []);
+  let usadosT149 = 0;
 
-  const strP = (v) => Array.isArray(v) ? String(v[0] || '') : String(v || '');
+  for (const r of rowsT149) {
+    const id = normId(sval(r.COD_POSTO));
+    if (!id) continue;
+    const cat = classificarCombustivel(null, sval(r.COMBUSTIVEL));
+    if (!cat) continue;
+    const valor = parseFloat(sval(r.VALOR_NEW).replace(',', '.'));
+    if (!valor || valor < 0.3) continue;
 
-  // Normaliza ID removendo whitespace e zeros à esquerda (alguns vêm como "00123").
-  const normId = (s) => String(s || '').trim().replace(/^0+(?=\d)/, '');
+    const dtStr = sval(r.DATA_MUDANCA) || null;
+    const ts = parseDtBR(dtStr);
 
-  const mapa = {};
-  let semCod = 0;
-  for (const r of rows) {
-    const idRaw = strP(r.COD_POSTO).trim();
-    if (!idRaw) { semCod++; continue; }
-    const id = normId(idRaw);
-    if (!mapa[id]) mapa[id] = {};
+    if (!mapa[id]) mapa[id] = { _ts: {} };
 
-    const comb = strP(r.COMBUSTIVEL).trim().toUpperCase();
-    const valor = parseFloat(strP(r.VALOR_NEW).replace(',', '.'));
-    if (!valor || valor < 0.5) continue;
-
-    const dt = strP(r.DATA_MUDANCA) || null;
-    // Mantém o preço mais recente por combustível.
-    if (comb === 'DIESEL S10' || comb === 'DIESEL S-10') {
-      if (!mapa[id].diesel_s10_dt || (dt && dt > mapa[id].diesel_s10_dt)) {
-        mapa[id].diesel_s10 = valor;
-        mapa[id].diesel_s10_dt = dt;
+    // Só usa T149 se T9 não tem ESSE combustível, OU se T149 é mais recente.
+    const tsAtual = mapa[id]._ts[cat] || 0;
+    if (ts > tsAtual) {
+      mapa[id][cat] = valor;
+      mapa[id]._ts[cat] = ts;
+      mapa[id][`${cat}_dt`] = dtStr;
+      usadosT149++;
+      if (!mapa[id].atualizado_ts || ts > mapa[id].atualizado_ts) {
+        mapa[id].atualizado_ts = ts;
+        mapa[id].atualizado = dtStr;
       }
-    } else if (comb.startsWith('DIESEL')) {
-      if (!mapa[id].diesel_dt || (dt && dt > mapa[id].diesel_dt)) {
-        mapa[id].diesel = valor;
-        mapa[id].diesel_dt = dt;
-      }
-    } else if (comb.startsWith('GASOLINA')) {
-      mapa[id].gasolina = valor;
-    } else if (comb.includes('ARLA')) {
-      mapa[id].arla = valor;
     }
+  }
 
-    // "atualizado" passa a ser a data MAIS RECENTE entre todos os combustíveis.
-    if (dt && (!mapa[id].atualizado || dt > mapa[id].atualizado)) {
-      mapa[id].atualizado = dt;
-    }
+  // Limpa metadados internos antes de retornar.
+  for (const id in mapa) {
+    delete mapa[id]._ts;
+    delete mapa[id].atualizado_ts;
   }
 
   ctfCache.precos = mapa;
   ctfCache.precosTs = agora;
-  log.info('CTF', `Preços de ${Object.keys(mapa).length} postos (${rows.length} linhas, ${semCod} sem COD)`);
+  log.info('CTF', `Preços consolidados: ${Object.keys(mapa).length} postos | T9=${totalT9} | T1346=${totalT1346} | T149=${rowsT149.length} (${usadosT149} usadas)`);
   return mapa;
 }
 
@@ -1273,12 +1433,28 @@ function resolverCoordPosto(posto) {
   return null;
 }
 
+// Categorias de combustível suportadas, em ordem de relevância para frota diesel.
+const CATEGORIAS_PRECO = [
+  'diesel_s10', 'diesel', 'diesel_s10_aditivado', 'diesel_aditivado', 'diesel_s50',
+  'arla',
+  'gasolina', 'gasolina_aditivada', 'gasolina_premium',
+  'etanol', 'etanol_aditivado',
+  'gnv',
+];
+
 // Constrói um item de posto pronto pro frontend.
 function montarPostoItem(posto, coord, distancia, precosMap) {
   const preco = precosMap[posto.id] || {};
   const endStr = [posto.endereco, posto.bairro, posto.cidade, posto.uf]
     .filter(Boolean).filter((s, i, a) => a.indexOf(s) === i).join(', ');
-  const temPrecoFlag = !!(preco.diesel || preco.diesel_s10 || preco.gasolina || preco.arla);
+
+  // Coleta todos os preços disponíveis.
+  const precos = {};
+  for (const cat of CATEGORIAS_PRECO) {
+    if (preco[cat]) precos[cat] = preco[cat];
+  }
+  const temPrecoFlag = Object.keys(precos).length > 0;
+
   return {
     id: `ctf_${posto.id}`,
     ctfId: posto.id,
@@ -1290,6 +1466,8 @@ function montarPostoItem(posto, coord, distancia, precosMap) {
     endereco: endStr || null,
     cidade: posto.cidade,
     uf: posto.uf,
+    precos,
+    // Campos legados (compatibilidade com o popup do mapa).
     preco_diesel: preco.diesel || null,
     preco_diesel_s10: preco.diesel_s10 || null,
     preco_gasolina: preco.gasolina || null,

@@ -1,6 +1,21 @@
 import { useState } from 'react';
 import { formatarPlaca } from '../utils/helpers';
 
+const COMBUSTIVEIS = {
+  diesel_s10:           { label: 'S10',         cls: 'diesel-s10', prioridade: 1, group: 'diesel' },
+  diesel:               { label: 'Diesel',      cls: 'diesel',     prioridade: 2, group: 'diesel' },
+  diesel_s10_aditivado: { label: 'S10 Adit',    cls: 'diesel-s10', prioridade: 3, group: 'diesel' },
+  diesel_aditivado:     { label: 'Diesel Adit', cls: 'diesel',     prioridade: 4, group: 'diesel' },
+  diesel_s50:           { label: 'S50',         cls: 'diesel',     prioridade: 5, group: 'diesel' },
+  arla:                 { label: 'ARLA',        cls: 'arla',       prioridade: 6, group: 'arla' },
+  gasolina:             { label: 'Gas',         cls: 'gasolina',   prioridade: 7, group: 'gasolina' },
+  gasolina_aditivada:   { label: 'Gas Adit',    cls: 'gasolina',   prioridade: 8, group: 'gasolina' },
+  gasolina_premium:     { label: 'Premium',     cls: 'gasolina',   prioridade: 9, group: 'gasolina' },
+  etanol:               { label: 'Etanol',      cls: 'etanol',     prioridade: 10, group: 'etanol' },
+  etanol_aditivado:     { label: 'Et Adit',     cls: 'etanol',     prioridade: 11, group: 'etanol' },
+  gnv:                  { label: 'GNV',         cls: 'gnv',        prioridade: 12, group: 'gnv' },
+};
+
 function formatarDistancia(km) {
   if (km < 1) return `${Math.round(km * 1000)} m`;
   return `${km.toFixed(1)} km`;
@@ -17,8 +32,16 @@ function formatarDataCTF(str) {
   return str.split(' ')[0] || null;
 }
 
+function listaPrecos(posto) {
+  const p = posto.precos || {};
+  return Object.entries(p)
+    .map(([k, v]) => ({ key: k, valor: v, ...COMBUSTIVEIS[k] }))
+    .filter((x) => x.label)
+    .sort((a, b) => a.prioridade - b.prioridade);
+}
+
 function temPreco(posto) {
-  return !!(posto.preco_diesel || posto.preco_diesel_s10 || posto.preco_gasolina || posto.preco_arla);
+  return listaPrecos(posto).length > 0;
 }
 
 function googleMapsURL(origem, posto) {
@@ -44,7 +67,6 @@ export default function PostosPanel({
   postoSelecionadoId,
   onPostoClick,
   geocodeStatus,
-  comPreco: comPrecoTotal,
 }) {
   const [ordem, setOrdem] = useState('preco');
   const [apenasComPreco, setApenasComPreco] = useState(true);
@@ -56,28 +78,28 @@ export default function PostosPanel({
 
   const postosOrdenados = [...listaFiltrada].sort((a, b) => {
     if (ordem === 'preco') {
-      const pa = a.preco_diesel_s10 ?? a.preco_diesel ?? 9999;
-      const pb = b.preco_diesel_s10 ?? b.preco_diesel ?? 9999;
+      const pa = a.precos?.diesel_s10 ?? a.precos?.diesel ?? 9999;
+      const pb = b.precos?.diesel_s10 ?? b.precos?.diesel ?? 9999;
       if (pa !== pb) return pa - pb;
       return a.distancia - b.distancia;
     }
-    // distância, mas com preço primeiro
     const aP = temPreco(a) ? 0 : 1;
     const bP = temPreco(b) ? 0 : 1;
     if (aP !== bP) return aP - bP;
     return a.distancia - b.distancia;
   });
 
-  const melhorDiesel = comPreco.reduce((min, p) => {
-    const v = p.preco_diesel_s10 ?? p.preco_diesel;
-    if (!v) return min;
-    return min === null || v < min ? v : min;
-  }, null);
-
-  const melhorArla = comPreco.reduce((min, p) => {
-    if (!p.preco_arla) return min;
-    return min === null || p.preco_arla < min ? p.preco_arla : min;
-  }, null);
+  // Menor preço por grupo (diesel, gasolina, arla...)
+  const melhoresPorGrupo = {};
+  comPreco.forEach((p) => {
+    listaPrecos(p).forEach(({ valor, group, key }) => {
+      // Considera "diesel" e "diesel_s10" do mesmo grupo
+      const g = group || key;
+      if (!melhoresPorGrupo[g] || valor < melhoresPorGrupo[g].valor) {
+        melhoresPorGrupo[g] = { valor, postoId: p.id, key };
+      }
+    });
+  });
 
   const raioMostradoKm = Math.round((raioEfetivo || raio) / 1000);
 
@@ -141,8 +163,8 @@ export default function PostosPanel({
       {/* Aviso de raio expandido automaticamente */}
       {expandiuAuto && raioMostradoKm > Math.round(raio / 1000) && (
         <div className="postos-aviso-expansao">
-          🔎 Raio expandido para <strong>{raioMostradoKm} km</strong> — não havia postos
-          com preço cadastrado dentro de {Math.round(raio / 1000)} km.
+          🔎 Raio expandido para <strong>{raioMostradoKm} km</strong> — não havia
+          postos com preço dentro de {Math.round(raio / 1000)} km.
         </div>
       )}
 
@@ -160,7 +182,7 @@ export default function PostosPanel({
           {apenasComPreco && postos.length > 0 ? (
             <>
               <p>Nenhum posto com preço cadastrado neste raio</p>
-              <small>{semPreco.length} postos credenciados encontrados (sem preço bomba publicado)</small>
+              <small>{semPreco.length} postos credenciados encontrados, mas sem preço bomba publicado</small>
               <button
                 className="postos-ver-todos-btn"
                 onClick={() => setApenasComPreco(false)}
@@ -175,65 +197,69 @@ export default function PostosPanel({
       ) : (
         <div className="postos-lista">
           {postosOrdenados.map((posto) => {
-            const pTemPreco = temPreco(posto);
-            const eOmelhorDiesel =
-              melhorDiesel !== null &&
-              (posto.preco_diesel === melhorDiesel || posto.preco_diesel_s10 === melhorDiesel);
-            const eOmelhorArla = melhorArla !== null && posto.preco_arla === melhorArla;
-            const eOmelhor = eOmelhorDiesel || eOmelhorArla;
+            const precos = listaPrecos(posto);
+            const pTemPreco = precos.length > 0;
             const eSelecionado = posto.id === postoSelecionadoId;
             const aprox = posto.geocoded_por !== 'endereco';
+
+            // Badges "menor preço" — só quando o posto é vencedor em algum grupo.
+            const grupos = [];
+            for (const p of precos) {
+              const g = p.group || p.key;
+              if (melhoresPorGrupo[g]?.postoId === posto.id && !grupos.includes(g)) {
+                grupos.push(g);
+              }
+            }
 
             return (
               <div
                 key={posto.id}
-                className={`posto-card${eSelecionado ? ' selecionado' : ''}${eOmelhor ? ' melhor-preco' : ''}${!pTemPreco ? ' sem-preco-card' : ''}`}
+                className={`posto-card${eSelecionado ? ' selecionado' : ''}${grupos.length ? ' melhor-preco' : ''}${!pTemPreco ? ' sem-preco-card' : ''}`}
                 onClick={() => onPostoClick(posto)}
               >
-                <div className="posto-card-resumo">
-                  <div className="posto-info">
-                    <span className="posto-nome">{posto.nome}</span>
-                    {posto.endereco && (
-                      <span className="posto-end" title={posto.endereco}>{posto.endereco}</span>
-                    )}
-                  </div>
-
-                  <div className="posto-meta">
-                    <span className="posto-distancia" title={aprox ? 'Localização aproximada (centroide da cidade)' : 'Localização exata (geocoding por endereço)'}>
-                      {aprox && <span className="posto-aprox">≈</span>}
-                      {formatarDistancia(posto.distancia)}
-                    </span>
-                    {pTemPreco ? (
-                      <div className="posto-precos-mini">
-                        {posto.preco_diesel_s10 && (
-                          <span className="preco-mini diesel-s10">
-                            S10 {formatarPreco(posto.preco_diesel_s10)}
-                          </span>
-                        )}
-                        {posto.preco_diesel && (
-                          <span className="preco-mini diesel">
-                            D {formatarPreco(posto.preco_diesel)}
-                          </span>
-                        )}
-                        {posto.preco_gasolina && (
-                          <span className="preco-mini gasolina">
-                            Gas {formatarPreco(posto.preco_gasolina)}
-                          </span>
-                        )}
-                        {posto.preco_arla && (
-                          <span className="preco-mini arla">
-                            ARLA {formatarPreco(posto.preco_arla)}
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="posto-sem-preco">sem preço</span>
-                    )}
-                    {eOmelhorDiesel && <span className="badge-melhor-preco">Menor diesel</span>}
-                    {eOmelhorArla && <span className="badge-melhor-preco arla">Menor ARLA</span>}
-                  </div>
+                {/* Linha 1: nome + distância */}
+                <div className="posto-linha-top">
+                  <span className="posto-nome">{posto.nome}</span>
+                  <span
+                    className="posto-distancia"
+                    title={aprox ? 'Localização aproximada (centroide da cidade)' : 'Localização exata (geocoding por endereço)'}
+                  >
+                    {aprox && <span className="posto-aprox">≈</span>}
+                    {formatarDistancia(posto.distancia)}
+                  </span>
                 </div>
 
+                {/* Linha 2: endereço */}
+                {posto.endereco && (
+                  <div className="posto-endereco" title={posto.endereco}>{posto.endereco}</div>
+                )}
+
+                {/* Linha 3: preços (largura total, vão pra baixo se não couber) */}
+                {pTemPreco ? (
+                  <div className="posto-precos-grid">
+                    {precos.map((p) => (
+                      <span key={p.key} className={`preco-chip ${p.cls}`} title={`${p.label}: ${formatarPreco(p.valor)}`}>
+                        <span className="preco-chip-label">{p.label}</span>
+                        <span className="preco-chip-valor">{formatarPreco(p.valor)}</span>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="posto-sem-preco-row">sem preço bomba publicado</div>
+                )}
+
+                {/* Linha 4: badges de menor preço */}
+                {grupos.length > 0 && (
+                  <div className="posto-badges">
+                    {grupos.map((g) => (
+                      <span key={g} className={`badge-melhor-preco ${g}`}>
+                        ⭐ menor {g === 'diesel' ? 'diesel' : g === 'arla' ? 'ARLA' : g === 'gasolina' ? 'gasolina' : g}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Linha 5: data + botões */}
                 <div className="posto-acoes-row">
                   {posto.preco_atualizado && (
                     <span className="posto-preco-data">
