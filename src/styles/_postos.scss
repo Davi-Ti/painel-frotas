@@ -349,6 +349,9 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   text-overflow: ellipsis;
+  word-break: break-word;
+  width: 100%;
+  min-width: 0;
 }
 
 .posto-precos-grid {
@@ -356,6 +359,8 @@
   flex-wrap: wrap;
   gap: 4px;
   margin-top: 2px;
+  width: 100%;
+  min-width: 0;
 }
 
 .preco-chip {

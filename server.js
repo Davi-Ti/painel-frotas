@@ -1149,6 +1149,34 @@ function parseDtBR(s) {
   return new Date(+m[3], +m[2] - 1, +m[1], +m[4] || 0, +m[5] || 0, +m[6] || 0).getTime();
 }
 
+// Limites mínimos por combustível para descartar sentinelas (R$ 1,000 exato),
+// preços históricos antiquíssimos e valores claramente cadastrados errados.
+// Cobre o cenário brasileiro 2026 — preços reais nunca caem abaixo desses limites.
+const PRECO_MINIMO = {
+  diesel:                4.00,
+  diesel_s10:            4.00,
+  diesel_s50:            4.00,
+  diesel_aditivado:      4.00,
+  diesel_s10_aditivado:  4.00,
+  gasolina:              3.50,
+  gasolina_aditivada:    3.80,
+  gasolina_premium:      4.00,
+  etanol:                2.00,
+  etanol_aditivado:      2.20,
+  arla:                  1.50,
+  gnv:                   1.80,
+};
+const PRECO_MAXIMO = 25.00; // limite superior absurdo: nada custa mais que R$25/L
+
+function precoValido(cat, valor) {
+  if (!valor || isNaN(valor)) return false;
+  if (valor >= PRECO_MAXIMO) return false;
+  // Sentinela exata em R$ 1,000 (vários postos do CTF cadastram assim).
+  if (Math.abs(valor - 1.000) < 0.0001) return false;
+  const min = PRECO_MINIMO[cat] || 1.0;
+  return valor >= min;
+}
+
 // Decodificador CD_COMBUSTIVEL → categoria do nosso schema interno.
 // Baseado no Template 39 do CTF. Mapeia tudo para 6 categorias.
 function classificarCombustivel(codigo, nomeFallback = '') {
@@ -1253,7 +1281,7 @@ async function carregarPrecosCTF() {
       const cat = classificarCombustivel(sval(r.CD_COMBUSTIVEL), sval(r.DC_COMBUSTIVEL));
       if (!cat) continue;
       const valor = parseFloat(sval(r.VL_PRECO_UNITARIO).replace(',', '.'));
-      if (!valor || valor < 0.3) continue;
+      if (!precoValido(cat, valor)) continue;
 
       const dtStr = sval(r.DT_EVENTO) || sval(r.DT_PROCESS) || null;
       const ts = parseDtBR(dtStr);
@@ -1276,42 +1304,7 @@ async function carregarPrecosCTF() {
     log.warn('CTF', `T9 falhou (continua com T149): ${e.message}`);
   }
 
-  // ── Template 1346: RegMasterMacro (cobertura adicional via master/bomba) ──
-  log.info('CTF', 'Carregando RegMasterMacro (Template 1346)...');
-  let totalT1346 = 0;
-  try {
-    const macros = await carregarRegMasterMacroCTF(50000);
-    totalT1346 = macros.length;
-
-    for (const r of macros) {
-      const id = normId(sval(r.NUMERO_POSTO));
-      if (!id) continue;
-      const cat = classificarCombustivel(sval(r.CODIGO_COMBUSTIVEL), '');
-      if (!cat) continue;
-      const valor = parseFloat(sval(r.VALOR_PRECO_LITRO).replace(',', '.'));
-      if (!valor || valor < 0.3) continue;
-
-      const dtStr = sval(r.DATA_EVENTO) || sval(r.HoraEvento) || sval(r.DAT_PROCESSAMENTO) || null;
-      const ts = parseDtBR(dtStr);
-      if (!ts) continue;
-
-      if (!mapa[id]) mapa[id] = { _ts: {} };
-      if (!mapa[id]._ts[cat] || ts > mapa[id]._ts[cat]) {
-        mapa[id][cat] = valor;
-        mapa[id]._ts[cat] = ts;
-        mapa[id][`${cat}_dt`] = dtStr;
-        if (!mapa[id].atualizado_ts || ts > mapa[id].atualizado_ts) {
-          mapa[id].atualizado_ts = ts;
-          mapa[id].atualizado = dtStr;
-        }
-      }
-    }
-    log.info('CTF', `T1346: ${totalT1346} linhas → ${Object.keys(mapa).length} postos no acumulado`);
-  } catch (e) {
-    log.warn('CTF', `T1346 falhou: ${e.message}`);
-  }
-
-  // ── Template 149: preço bomba (fallback para postos sem abastecimento) ──
+  // ── Template 149: preço bomba (descritivo, fonte confiável) ──
   log.info('CTF', 'Carregando preços (Template 149)...');
   const data = await ctfSOAP(149);
   const rowsT149 = paraArray(data?.Preco_Bomba?.Preco_BombaRow || []);
@@ -1323,14 +1316,13 @@ async function carregarPrecosCTF() {
     const cat = classificarCombustivel(null, sval(r.COMBUSTIVEL));
     if (!cat) continue;
     const valor = parseFloat(sval(r.VALOR_NEW).replace(',', '.'));
-    if (!valor || valor < 0.3) continue;
+    if (!precoValido(cat, valor)) continue;
 
     const dtStr = sval(r.DATA_MUDANCA) || null;
     const ts = parseDtBR(dtStr);
 
     if (!mapa[id]) mapa[id] = { _ts: {} };
 
-    // Só usa T149 se T9 não tem ESSE combustível, OU se T149 é mais recente.
     const tsAtual = mapa[id]._ts[cat] || 0;
     if (ts > tsAtual) {
       mapa[id][cat] = valor;
@@ -1344,6 +1336,50 @@ async function carregarPrecosCTF() {
     }
   }
 
+  // ── Template 1346: RegMasterMacro (fallback — só para postos sem nada) ──
+  // T1346 usa códigos curtos ambíguos (CODIGO_COMBUSTIVEL "S" que pode não
+  // bater com Template 39). Use só quando o posto não tem preço nas outras
+  // fontes, para evitar misclassificação.
+  log.info('CTF', 'Carregando RegMasterMacro (Template 1346)...');
+  let totalT1346 = 0;
+  let usadosT1346 = 0;
+  try {
+    const macros = await carregarRegMasterMacroCTF(50000);
+    totalT1346 = macros.length;
+
+    for (const r of macros) {
+      const id = normId(sval(r.NUMERO_POSTO));
+      if (!id) continue;
+      // Só usa T1346 para postos completamente sem preço.
+      if (mapa[id] && Object.keys(mapa[id]).some((k) => k !== '_ts' && !k.endsWith('_ts') && !k.endsWith('_dt') && k !== 'atualizado' && k !== 'atualizado_ts')) {
+        continue;
+      }
+      const cat = classificarCombustivel(sval(r.CODIGO_COMBUSTIVEL), '');
+      if (!cat) continue;
+      const valor = parseFloat(sval(r.VALOR_PRECO_LITRO).replace(',', '.'));
+      if (!precoValido(cat, valor)) continue;
+
+      const dtStr = sval(r.DATA_EVENTO) || sval(r.HoraEvento) || sval(r.DAT_PROCESSAMENTO) || null;
+      const ts = parseDtBR(dtStr);
+      if (!ts) continue;
+
+      if (!mapa[id]) mapa[id] = { _ts: {} };
+      if (!mapa[id]._ts[cat] || ts > mapa[id]._ts[cat]) {
+        mapa[id][cat] = valor;
+        mapa[id]._ts[cat] = ts;
+        mapa[id][`${cat}_dt`] = dtStr;
+        usadosT1346++;
+        if (!mapa[id].atualizado_ts || ts > mapa[id].atualizado_ts) {
+          mapa[id].atualizado_ts = ts;
+          mapa[id].atualizado = dtStr;
+        }
+      }
+    }
+    log.info('CTF', `T1346: ${totalT1346} linhas → ${usadosT1346} usadas (postos sem T9/T149)`);
+  } catch (e) {
+    log.warn('CTF', `T1346 falhou: ${e.message}`);
+  }
+
   // Limpa metadados internos antes de retornar.
   for (const id in mapa) {
     delete mapa[id]._ts;
@@ -1352,7 +1388,10 @@ async function carregarPrecosCTF() {
 
   ctfCache.precos = mapa;
   ctfCache.precosTs = agora;
-  log.info('CTF', `Preços consolidados: ${Object.keys(mapa).length} postos | T9=${totalT9} | T1346=${totalT1346} | T149=${rowsT149.length} (${usadosT149} usadas)`);
+  log.info('CTF', `Preços consolidados: ${Object.keys(mapa).length} postos | T9=${totalT9} | T149=${rowsT149.length} (${usadosT149} usadas) | T1346=${totalT1346} (${usadosT1346} usadas)`);
+
+  // Adiciona timestamp da consolidação ao mapa.
+  void usadosT1346;
   return mapa;
 }
 
