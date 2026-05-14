@@ -137,7 +137,7 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
   const alertas = useMemo(() => {
     const lista = [];
     veiculos.forEach((v) => {
-      v.eventos.forEach((evt) => lista.push({ placa: v.placa, veiID: v.veiID, municipio: v.municipio, uf: v.uf, ...evt }));
+      v.eventos.forEach((evt) => lista.push({ placa: v.placa, identificacao: v.identificacao, veiID: v.veiID, municipio: v.municipio, uf: v.uf, ...evt }));
     });
     const ordem = { critico: 0, alto: 1, medio: 2, info: 3 };
     return lista.sort((a, b) => (ordem[a.severity] ?? 9) - (ordem[b.severity] ?? 9));
@@ -218,16 +218,16 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
             <Marker
               key={v.veiID}
               position={[v.lat, v.lon]}
-              icon={criarIcone(v.statusCor, formatarPlaca(v.placa), v.eventos.length > 0)}
+              icon={criarIcone(v.statusCor, formatarPlaca(v.placa, v.identificacao), v.eventos.length > 0)}
               zIndexOffset={selecionado === v.veiID ? 500 : 0}
               eventHandlers={{ click: () => { setSelecionado(v.veiID); if (modoPostos) sairModoPostos(); } }}
             >
               <Tooltip direction="top" offset={[0, -22]} className="tooltip-veiculo">
-                <strong>{formatarPlaca(v.placa)}</strong> — {v.statusTexto}
+                <strong>{formatarPlaca(v.placa, v.identificacao)}</strong> — {v.statusTexto}
               </Tooltip>
               <Popup>
                 <div className="popup-header">
-                  <span className="popup-placa">{formatarPlaca(v.placa)}</span>
+                  <span className="popup-placa">{formatarPlaca(v.placa, v.identificacao)}</span>
                   <span className="popup-status" style={{ background: v.statusCor + '22', color: v.statusCor }}>{v.statusTexto}</span>
                 </div>
                 <div className="popup-body">
@@ -316,7 +316,7 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
           /* Detalhe do veículo */
           <div className="painel-detalhe">
             <div className="painel-detalhe-header">
-              <h3>{formatarPlaca(vei.placa)}</h3>
+              <h3>{formatarPlaca(vei.placa, vei.identificacao)}</h3>
               <button className="btn-fechar" onClick={() => setSelecionado(null)}>✕</button>
             </div>
             <span className="badge-status-lg" style={{ background: vei.statusCor + '22', color: vei.statusCor }}>{vei.statusTexto}</span>
@@ -376,7 +376,7 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
                     onClick={() => setSelecionado(a.veiID)}
                   >
                     <div className="alerta-item-top">
-                      <span className="alerta-placa">{formatarPlaca(a.placa)}</span>
+                      <span className="alerta-placa">{formatarPlaca(a.placa, a.identificacao)}</span>
                       <span className="alerta-sev-badge" style={{ background: corDoSeverity(a.severity) + '22', color: corDoSeverity(a.severity) }}>{labelSeverity(a.severity)}</span>
                     </div>
                     <div className="alerta-item-desc">{a.icone} {a.descricao}</div>

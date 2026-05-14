@@ -23,7 +23,7 @@ const COLUNAS = [
     label: 'Placa',
     width: '80px',
     className: 'td-placa',
-    render: (v) => formatarPlaca(v.placa),
+    render: (v) => formatarPlaca(v.placa, v.identificacao),
   },
   {
     key: 'bloqueado',
@@ -230,7 +230,7 @@ export default function TabelaView({ veiculos, filtroStatus, setFiltroStatus }) 
       >
         {/* Linha resumo — sempre visível */}
         <div className="mob-resumo">
-          <span className="mob-placa">{formatarPlaca(v.placa)}</span>
+          <span className="mob-placa">{formatarPlaca(v.placa, v.identificacao)}</span>
           <span className="mob-status-dot" style={{ background: corDoStatus(v.status) }}
             title={v.statusTexto} />
           <span className="mob-local">{v.municipio || '—'}{v.uf ? `/${v.uf}` : ''}</span>

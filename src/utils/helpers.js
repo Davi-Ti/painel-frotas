@@ -1,6 +1,6 @@
-// Formata placa: "ABC1D23" → "ABC-1D23"
-export function formatarPlaca(placa) {
-  if (!placa || placa.trim() === '') return 'S/Placa';
+// Formata placa: "ABC1D23" → "ABC-1D23". Usa identificacao como fallback enquanto veículos carregam.
+export function formatarPlaca(placa, identificacao = '') {
+  if (!placa || placa.trim() === '') return identificacao ? identificacao.trim() : 'S/Placa';
   if (placa.includes('-')) return placa.toUpperCase();
   if (placa.length === 7) return `${placa.slice(0, 3)}-${placa.slice(3)}`.toUpperCase();
   return placa.toUpperCase();

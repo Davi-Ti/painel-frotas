@@ -338,44 +338,63 @@ function paraArray(valor) {
 
 // Polling
 
-async function buscarVeiculos() {
+async function buscarVeiculos(tentativas = 4) {
   const xml = `<RequestVeiculo>
   <login>${TC_LOGIN}</login>
   <senha>${TC_SENHA}</senha>
 </RequestVeiculo>`;
 
-  try {
-    const resultado = await enviarXML(xml, 'Veículos');
-    if (!resultado) return;
+  const esperas = [0, 15000, 30000, 60000]; // 0s, 15s, 30s, 60s entre tentativas
 
-    const veiculos = paraArray(resultado.ResponseVeiculo?.Veiculo);
-
-    for (const v of veiculos) {
-      const eqp = parseInt(v.eqp) || 0;
-      db.veiculos[v.veiID] = {
-        veiID: v.veiID,
-        placa: v.placa || '',
-        eqp,
-        equipamento: EQUIPAMENTOS[eqp] || `Tipo ${v.eqp}`,
-        identificacao: v.ident || '',
-        motorista: v.mot || '',
-        emManutencao: v.vManut === '1',
-        versao: v.vs || null,
-        temSensorTemp1: v.st1 === '1',
-        temSensorTemp2: v.st2 === '1',
-        temSensorTemp3: v.st3 === '1',
-        temTecladoMacro: v.tMac === '1',
-        podeEnviarComando: v.eCmd === '1',
-        temIE: v.dIE === '1',
-        ieAtiva: v.IE === '1',
-      };
+  for (let i = 0; i < tentativas; i++) {
+    if (i > 0) {
+      const espera = esperas[i] || 60000;
+      log.warn('Veículos', `Tentativa ${i + 1}/${tentativas} em ${espera / 1000}s...`);
+      await delay(espera);
     }
+    try {
+      const resultado = await enviarXML(xml, 'Veículos');
+      if (!resultado) {
+        log.warn('Veículos', `Sem resultado (tentativa ${i + 1})`);
+        continue;
+      }
 
-    log.info('Veículos', `${veiculos.length} carregados`);
-    salvarCache();
-  } catch (erro) {
-    log.error('Veículos', erro.message);
+      const veiculos = paraArray(resultado.ResponseVeiculo?.Veiculo);
+      if (veiculos.length === 0) {
+        log.warn('Veículos', `Lista vazia (tentativa ${i + 1})`);
+        continue;
+      }
+
+      for (const v of veiculos) {
+        const eqp = parseInt(v.eqp) || 0;
+        db.veiculos[v.veiID] = {
+          veiID: v.veiID,
+          placa: v.placa || '',
+          eqp,
+          equipamento: EQUIPAMENTOS[eqp] || `Tipo ${v.eqp}`,
+          identificacao: v.ident || '',
+          motorista: v.mot || '',
+          emManutencao: v.vManut === '1',
+          versao: v.vs || null,
+          temSensorTemp1: v.st1 === '1',
+          temSensorTemp2: v.st2 === '1',
+          temSensorTemp3: v.st3 === '1',
+          temTecladoMacro: v.tMac === '1',
+          podeEnviarComando: v.eCmd === '1',
+          temIE: v.dIE === '1',
+          ieAtiva: v.IE === '1',
+        };
+      }
+
+      log.info('Veículos', `${veiculos.length} carregados`);
+      salvarCache();
+      return; // sucesso
+    } catch (erro) {
+      log.error('Veículos', `${erro.message} (tentativa ${i + 1})`);
+    }
   }
+
+  log.error('Veículos', `Falha após ${tentativas} tentativas — veículos não carregados`);
 }
 
 async function buscarMensagens() {
@@ -669,6 +688,7 @@ function montarDadosFrota() {
     totalAlertas += alertas.filter((a) => a.severity !== 'info').length;
 
     const placa = veiculo.placa || pos?.placa || '';
+    // Strip purely-numeric strings (raw veiID leaking into placa field)
     const placaLimpa = /^\d+$/.test(placa) ? '' : placa;
 
     let alertaCritico = 0;
@@ -776,11 +796,6 @@ async function iniciarPolling() {
   await buscarCarretas(3);
   await delay(2000);
   await buscarMensagens();
-
-  if (Object.keys(db.veiculos).length === 0) {
-    log.warn('Polling', 'Veículos vazio — retentando em 60s...');
-    setTimeout(buscarVeiculos, 60 * 1000);
-  }
 
   intervalos.push(setInterval(buscarMensagens, INTERVALO_MENSAGENS));
   intervalos.push(setInterval(async () => {
