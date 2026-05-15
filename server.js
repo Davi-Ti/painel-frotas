@@ -4,6 +4,14 @@
 
 require('dotenv').config();
 
+// Impede que rejeições não capturadas derrubem o processo em Node 22+
+process.on('unhandledRejection', (reason) => {
+  console.error(`${new Date().toISOString()} [FATAL] UnhandledRejection: ${reason}`);
+});
+process.on('uncaughtException', (err) => {
+  console.error(`${new Date().toISOString()} [FATAL] UncaughtException: ${err.message}`);
+});
+
 const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
@@ -775,20 +783,23 @@ async function iniciarPolling() {
   }
 
   // Mensagens (posições) iniciam imediatamente — não bloqueia no catálogo de veículos.
-  // O catálogo carrega em paralelo; se vier Erro 7 (rate-limit de 5 min), o intervalo
-  // periódico tentará novamente sem travar o painel.
+  // Catálogo carrega em paralelo; Erro 7 (rate-limit 5 min) é esperado logo após redeploy.
   await buscarMensagens();
-  buscarVeiculos();
-  buscarMotoristas();
-  buscarCarretas(3);
+  buscarVeiculos().catch(() => {});
+  buscarMotoristas().catch(() => {});
+  buscarCarretas(1).catch(() => {});
 
   intervalos.push(setInterval(buscarMensagens, INTERVALO_MENSAGENS));
   intervalos.push(setInterval(async () => {
-    await buscarVeiculos();
-    await delay(2000);
-    await buscarMotoristas();
-    await delay(2000);
-    await buscarCarretas(2);
+    try {
+      await buscarVeiculos();
+      await delay(2000);
+      await buscarMotoristas();
+      await delay(2000);
+      await buscarCarretas(1);
+    } catch (e) {
+      log.error('Polling', `Ciclo de veículos falhou: ${e.message}`);
+    }
   }, INTERVALO_VEICULOS));
 }
 
@@ -1052,24 +1063,29 @@ async function processarFilaGeocode() {
   if (geocodeAtivo) return;
   geocodeAtivo = true;
   let contador = 0;
-  while (geocodeQueue.length > 0) {
-    const [cidade, uf] = geocodeQueue.shift();
-    const chave = `${cidade}|${uf}`;
-    if (!(chave in ctfCache.geocode)) {
-      await geocodificarCidade(cidade, uf);
-      contador++;
-      if (contador % 100 === 0) {
-        salvarGeocodeCache();
-        log.info('CTF Geocode', `${contador} cidades geocodificadas...`);
+  try {
+    while (geocodeQueue.length > 0) {
+      const [cidade, uf] = geocodeQueue.shift();
+      const chave = `${cidade}|${uf}`;
+      if (!(chave in ctfCache.geocode)) {
+        await geocodificarCidade(cidade, uf);
+        contador++;
+        if (contador % 100 === 0) {
+          salvarGeocodeCache();
+          log.info('CTF Geocode', `${contador} cidades geocodificadas...`);
+        }
+        await delay(750); // ~1.3 req/seg, dentro do limite Nominatim
       }
-      await delay(750); // ~1.3 req/seg, dentro do limite Nominatim
     }
+    if (contador > 0) {
+      salvarGeocodeCache();
+      log.info('CTF Geocode', `Geocoding cidades concluído: ${contador} novas`);
+    }
+  } catch (e) {
+    log.error('CTF Geocode', `Fila geocode abortou: ${e.message}`);
+  } finally {
+    geocodeAtivo = false;
   }
-  if (contador > 0) {
-    salvarGeocodeCache();
-    log.info('CTF Geocode', `Geocoding cidades concluído: ${contador} novas`);
-  }
-  geocodeAtivo = false;
 }
 
 // Processa fila de geocoding POR POSTO (endereço). Roda em background.
@@ -1077,37 +1093,38 @@ async function processarFilaGeocodePostos() {
   if (geocodePostoAtivo) return;
   geocodePostoAtivo = true;
   let contador = 0, sucessos = 0;
+  try {
+    while (geocodePostoQueue.length > 0) {
+      const posto = geocodePostoQueue.shift();
+      if (!posto || !posto.id) continue;
+      if (ctfCache.geocodePosto[posto.id]?.fonte === 'endereco') continue;
 
-  while (geocodePostoQueue.length > 0) {
-    const posto = geocodePostoQueue.shift();
-    if (!posto || !posto.id) continue;
-    if (ctfCache.geocodePosto[posto.id]?.fonte === 'endereco') continue;
+      const coord = await geocodificarEndereco(posto);
+      if (coord) {
+        const fonte = coord.nivel === 'bairro' ? 'bairro' : 'endereco';
+        ctfCache.geocodePosto[posto.id] = { lat: coord.lat, lon: coord.lon, fonte };
+        sucessos++;
+      } else {
+        const atual = ctfCache.geocodePosto[posto.id] || {};
+        ctfCache.geocodePosto[posto.id] = { ...atual, tentadoEndereco: true };
+      }
+      contador++;
 
-    const coord = await geocodificarEndereco(posto);
-    if (coord) {
-      // Nivel: 'endereco' (rua específica) ou 'endereco_simples' = preciso
-      //        'bairro' = só centroide do bairro (impreciso mas correto)
-      const fonte = coord.nivel === 'bairro' ? 'bairro' : 'endereco';
-      ctfCache.geocodePosto[posto.id] = { lat: coord.lat, lon: coord.lon, fonte };
-      sucessos++;
-    } else {
-      const atual = ctfCache.geocodePosto[posto.id] || {};
-      ctfCache.geocodePosto[posto.id] = { ...atual, tentadoEndereco: true };
+      if (contador % 25 === 0) {
+        salvarGeocodePostosCache();
+        log.info('CTF Geocode Posto', `${contador} processados (${sucessos} match por endereço)`);
+      }
+      await delay(1100); // limite Nominatim (~1 req/s)
     }
-    contador++;
-
-    if (contador % 25 === 0) {
+    if (contador > 0) {
       salvarGeocodePostosCache();
-      log.info('CTF Geocode Posto', `${contador} processados (${sucessos} match por endereço)`);
+      log.info('CTF Geocode Posto', `Concluído: ${contador} processados, ${sucessos} match por endereço`);
     }
-    await delay(1100); // limite Nominatim (~1 req/s)
+  } catch (e) {
+    log.error('CTF Geocode Posto', `Fila abortou: ${e.message}`);
+  } finally {
+    geocodePostoAtivo = false;
   }
-
-  if (contador > 0) {
-    salvarGeocodePostosCache();
-    log.info('CTF Geocode Posto', `Concluído: ${contador} processados, ${sucessos} match por endereço`);
-  }
-  geocodePostoAtivo = false;
 }
 
 async function ctfSOAPCall(codTemplate, qtd = 9999, ponteiro = 0) {
@@ -1756,16 +1773,19 @@ if (fs.existsSync(path.join(distPath, 'index.html'))) {
   });
 }
 
-const server = app.listen(PORT, async () => {
+const server = app.listen(PORT, () => {
   log.info('Server', `Painel de Frotas rodando em http://localhost:${PORT}`);
   carregarGeocodeCache();
-  await iniciarPolling();
-  if (CTF_USER && CTF_PASS) {
-    log.info('CTF', `Credenciais configuradas (${CTF_USER})`);
-    setTimeout(iniciarGeocodeBackground, 5000); // inicia após polling estabilizar
-  } else {
-    log.warn('CTF', 'CTF_USER/CTF_PASS não configurados — postos CTF desabilitados');
-  }
+  iniciarPolling()
+    .then(() => {
+      if (CTF_USER && CTF_PASS) {
+        log.info('CTF', `Credenciais configuradas (${CTF_USER})`);
+        setTimeout(() => iniciarGeocodeBackground().catch((e) => log.error('CTF Geocode', e.message)), 5000);
+      } else {
+        log.warn('CTF', 'CTF_USER/CTF_PASS não configurados — postos CTF desabilitados');
+      }
+    })
+    .catch((e) => log.error('Polling', `Falha ao iniciar: ${e.message}`));
 });
 
 
