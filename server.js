@@ -1604,6 +1604,10 @@ function montarPostoItem(posto, coord, distancia, precosMap) {
 }
 
 app.get('/api/postos', async (req, res) => {
+  if (!CTF_USER || !CTF_PASS) {
+    return res.status(503).json({ erro: 'Credenciais CTF não configuradas (CTF_USER/CTF_PASS ausentes)' });
+  }
+
   const { lat, lon, raio = '20000', expandir } = req.query;
   if (!lat || !lon) return res.status(400).json({ erro: 'lat e lon são obrigatórios' });
 
