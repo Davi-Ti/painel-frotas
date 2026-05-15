@@ -103,6 +103,7 @@ function criarIconePosto(posto, selecionado = false) {
 export default function MapaView({ veiculos, fitCounter = 0 }) {
   const [selecionado, setSelecionado] = useState(null);
   const [buscaPlaca, setBuscaPlaca] = useState('');
+  const seletorRef = useRef(null);
 
   // Estado de postos
   const [modoPostos, setModoPostos] = useState(false);
@@ -149,6 +150,17 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
   }, [veiculos]);
 
   const vei = selecionado ? veiculos.find((v) => v.veiID === selecionado) : null;
+
+  // Fecha seletor de mapa ao clicar fora
+  useEffect(() => {
+    function handler(e) {
+      if (seletorRef.current && !seletorRef.current.contains(e.target)) {
+        setSeletorMapaAberto(false);
+      }
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   async function buscarPostos(veiculo, raio = raioPostos, dest = destino, corredor = corredorKm) {
     if (!veiculo?.lat || !veiculo?.lon) return;
@@ -210,6 +222,16 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
     ? [postosVeiculo.lat, postosVeiculo.lon]
     : null;
 
+  const [tipoMapa, setTipoMapa] = useState('escuro');
+  const [seletorMapaAberto, setSeletorMapaAberto] = useState(false);
+
+  const TILES = {
+    escuro:   { label: 'Escuro',    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',              attr: '&copy; CARTO' },
+    claro:    { label: 'Claro',     url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',             attr: '&copy; CARTO' },
+    ruas:     { label: 'Ruas',      url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',   attr: '&copy; CARTO' },
+    satelite: { label: 'Satélite',  url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr: '&copy; Esri' },
+  };
+
   return (
     <div className={`mapa-layout${modoPostos ? ' postos-ativo' : ''}`}>
       {/* === MAPA === */}
@@ -227,8 +249,32 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
           )}
         </div>
 
+        {/* Seletor de mapa */}
+        <div className="mapa-tile-seletor" ref={seletorRef}>
+          <button
+            className="mapa-tile-btn-principal"
+            onClick={() => setSeletorMapaAberto((v) => !v)}
+            title="Tipo de mapa"
+          >
+            🗺️ {TILES[tipoMapa].label}
+          </button>
+          {seletorMapaAberto && (
+            <div className="mapa-tile-menu">
+              {Object.entries(TILES).map(([key, tile]) => (
+                <button
+                  key={key}
+                  className={`mapa-tile-opcao${tipoMapa === key ? ' ativo' : ''}`}
+                  onClick={() => { setTipoMapa(key); setSeletorMapaAberto(false); }}
+                >
+                  {tile.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         <MapContainer center={[-19.5, -51]} zoom={6.4} scrollWheelZoom zoomControl={false} style={{ height: '100%', width: '100%' }}>
-          <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution="&copy; CARTO" />
+          <TileLayer key={tipoMapa} url={TILES[tipoMapa].url} attribution={TILES[tipoMapa].attr} />
 
           {!modoPostos && (
             <AutoFitBounds posicoes={noMapaFiltrado} fitCounter={fitCounter} assinatura={assinaturaMapa} />

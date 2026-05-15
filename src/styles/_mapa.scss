@@ -132,6 +132,67 @@
   .stat-alerta { color: $cor-amarelo; }
 }
 
+// Seletor de tipo de mapa
+.mapa-tile-seletor {
+  position: absolute;
+  bottom: 40px;
+  right: 14px;
+  z-index: 1000;
+}
+
+.mapa-tile-btn-principal {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  background: rgba($bg-card, 0.95);
+  border: 1px solid $borda;
+  border-radius: 7px;
+  color: $texto-primario;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  white-space: nowrap;
+  transition: border-color 0.15s;
+
+  &:hover { border-color: $marca-azul; }
+}
+
+.mapa-tile-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  background: rgba($bg-card, 0.97);
+  border: 1px solid $borda;
+  border-radius: 8px;
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+  min-width: 120px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+
+.mapa-tile-opcao {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  background: none;
+  border: none;
+  color: $texto-secundario;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+
+  &:hover { background: rgba($marca-azul, 0.15); color: $texto-primario; }
+
+  &.ativo {
+    color: $marca-azul;
+    font-weight: 700;
+    background: rgba($marca-azul, 0.1);
+  }
+}
+
 // Marcadores
 .marcador-veiculo {
   width: 30px;
