@@ -829,3 +829,149 @@
   .posto-nav-btns { gap: 4px; }
   .posto-endereco { -webkit-line-clamp: 1; }
 }
+
+// ── Modo Rota ──────────────────────────────────────────────────────
+
+.postos-modo-toggle {
+  display: flex;
+  gap: 4px;
+  padding: 6px 12px 0;
+}
+
+.postos-modo-btn {
+  flex: 1;
+  padding: 6px 0;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  background: #1f2937;
+  color: #9ca3af;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+
+  &:hover { background: #374151; color: #e5e7eb; }
+
+  &.ativo {
+    background: #1e3a5f;
+    color: #60a5fa;
+    border-color: #3b82f6;
+  }
+}
+
+.postos-rota-controles {
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-bottom: 1px solid #1f2937;
+}
+
+.postos-destino-row {
+  display: flex;
+  gap: 6px;
+}
+
+.postos-destino-input {
+  flex: 1;
+  padding: 6px 10px;
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  color: #e5e7eb;
+  font-size: 0.82rem;
+  outline: none;
+
+  &::placeholder { color: #4b5563; }
+  &:focus { border-color: #3b82f6; }
+}
+
+.postos-destino-btn {
+  padding: 6px 12px;
+  background: #1e40af;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover:not(:disabled) { background: #2563eb; }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+
+.postos-destino-erro {
+  font-size: 0.75rem;
+  color: #f87171;
+}
+
+.postos-destino-info {
+  font-size: 0.78rem;
+  color: #86efac;
+  strong { color: #4ade80; }
+}
+
+.postos-corredor-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.postos-corredor-label {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  margin-right: 2px;
+}
+
+.postos-corredor-btn {
+  padding: 3px 8px;
+  border: 1px solid #374151;
+  border-radius: 4px;
+  background: #1f2937;
+  color: #9ca3af;
+  font-size: 0.74rem;
+  cursor: pointer;
+  transition: all 0.15s;
+
+  &:hover { border-color: #60a5fa; color: #e5e7eb; }
+  &.ativo { background: #1e3a5f; color: #60a5fa; border-color: #3b82f6; }
+}
+
+// Distância na rota (km na rota + desvio lateral)
+.posto-rota-pos {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.posto-desvio {
+  font-size: 0.68rem;
+  color: #9ca3af;
+}
+
+// Marcador de destino no mapa
+.marcador-destino {
+  font-size: 1.5rem;
+  line-height: 1;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.8));
+  animation: pulsar-destino 2s ease-in-out infinite;
+}
+
+@keyframes pulsar-destino {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+
+.tooltip-destino {
+  background: #1f2937 !important;
+  color: #f59e0b !important;
+  border: 1px solid #f59e0b !important;
+  font-weight: 700;
+  font-size: 0.78rem;
+  border-radius: 4px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}

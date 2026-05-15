@@ -77,21 +77,38 @@ export default function PostosPanel({
   postoSelecionadoId,
   onPostoClick,
   geocodeStatus,
+  modoRota,
+  destino,
+  corredorKm,
+  onModoRotaChange,
+  onAplicarRota,
+  onCorredorChange,
 }) {
   const [ordem, setOrdem] = useState('preco');
   const [apenasComPreco, setApenasComPreco] = useState(true);
 
+  // Estado do input de destino (rota)
+  const [destinoTexto, setDestinoTexto] = useState('');
+  const [geocodandoDestino, setGeocodandoDestino] = useState(false);
+  const [erroDestino, setErroDestino] = useState(null);
+
   const comPreco = postos.filter(temPreco);
   const semPreco = postos.filter((p) => !temPreco(p));
-
   const listaFiltrada = apenasComPreco ? comPreco : postos;
 
+  // No modo rota, a ordenação já vem do servidor (posição na rota); só reordena por preço se pedido
   const postosOrdenados = [...listaFiltrada].sort((a, b) => {
+    if (modoRota && ordem !== 'preco') {
+      // Rota: preserva ordem de posição na rota (posicaoRota já ordenado pelo servidor)
+      return (a.posicaoRota ?? 0) - (b.posicaoRota ?? 0);
+    }
     if (ordem === 'preco') {
       const pa = a.precos?.diesel_s10 ?? a.precos?.diesel ?? 9999;
       const pb = b.precos?.diesel_s10 ?? b.precos?.diesel ?? 9999;
       if (pa !== pb) return pa - pb;
-      return a.distancia - b.distancia;
+      return modoRota
+        ? (a.posicaoRota ?? 0) - (b.posicaoRota ?? 0)
+        : a.distancia - b.distancia;
     }
     const aP = temPreco(a) ? 0 : 1;
     const bP = temPreco(b) ? 0 : 1;
@@ -99,11 +116,9 @@ export default function PostosPanel({
     return a.distancia - b.distancia;
   });
 
-  // Menor preço por grupo (diesel, gasolina, arla...)
   const melhoresPorGrupo = {};
   comPreco.forEach((p) => {
     listaPrecos(p).forEach(({ valor, group, key }) => {
-      // Considera "diesel" e "diesel_s10" do mesmo grupo
       const g = group || key;
       if (!melhoresPorGrupo[g] || valor < melhoresPorGrupo[g].valor) {
         melhoresPorGrupo[g] = { valor, postoId: p.id, key };
@@ -112,6 +127,23 @@ export default function PostosPanel({
   });
 
   const raioMostradoKm = Math.round((raioEfetivo || raio) / 1000);
+
+  async function buscarDestino() {
+    const q = destinoTexto.trim();
+    if (!q) return;
+    setGeocodandoDestino(true);
+    setErroDestino(null);
+    try {
+      const resp = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
+      const data = await resp.json();
+      if (data.erro) throw new Error(data.erro);
+      onAplicarRota({ lat: data.lat, lon: data.lon, nome: data.nome });
+    } catch (e) {
+      setErroDestino(e.message);
+    } finally {
+      setGeocodandoDestino(false);
+    }
+  }
 
   return (
     <div className="postos-painel">
@@ -124,35 +156,87 @@ export default function PostosPanel({
         </div>
       </div>
 
-      {/* Controles */}
-      <div className="postos-controles">
-        <select
-          className="postos-raio-select"
-          value={raio}
-          onChange={(e) => onRaioChange(parseInt(e.target.value))}
+      {/* Toggle Raio / Rota */}
+      <div className="postos-modo-toggle">
+        <button
+          className={`postos-modo-btn${!modoRota ? ' ativo' : ''}`}
+          onClick={() => onModoRotaChange(false)}
         >
-          <option value={10000}>10 km</option>
-          <option value={20000}>20 km</option>
-          <option value={30000}>30 km</option>
-          <option value={50000}>50 km</option>
-          <option value={100000}>100 km</option>
-        </select>
-
-        <div className="postos-ordem-toggle">
-          <button
-            className={`postos-ordem-btn${ordem === 'distancia' ? ' ativo' : ''}`}
-            onClick={() => setOrdem('distancia')}
-          >
-            Distância
-          </button>
-          <button
-            className={`postos-ordem-btn${ordem === 'preco' ? ' ativo' : ''}`}
-            onClick={() => setOrdem('preco')}
-          >
-            Menor Preço
-          </button>
-        </div>
+          📍 Raio
+        </button>
+        <button
+          className={`postos-modo-btn${modoRota ? ' ativo' : ''}`}
+          onClick={() => onModoRotaChange(true)}
+        >
+          🛣️ Rota
+        </button>
       </div>
+
+      {/* Controles — Raio */}
+      {!modoRota && (
+        <div className="postos-controles">
+          <select
+            className="postos-raio-select"
+            value={raio}
+            onChange={(e) => onRaioChange(parseInt(e.target.value))}
+          >
+            <option value={10000}>10 km</option>
+            <option value={20000}>20 km</option>
+            <option value={30000}>30 km</option>
+            <option value={50000}>50 km</option>
+            <option value={100000}>100 km</option>
+          </select>
+          <div className="postos-ordem-toggle">
+            <button className={`postos-ordem-btn${ordem === 'distancia' ? ' ativo' : ''}`} onClick={() => setOrdem('distancia')}>Distância</button>
+            <button className={`postos-ordem-btn${ordem === 'preco' ? ' ativo' : ''}`} onClick={() => setOrdem('preco')}>Menor Preço</button>
+          </div>
+        </div>
+      )}
+
+      {/* Controles — Rota */}
+      {modoRota && (
+        <div className="postos-rota-controles">
+          <div className="postos-destino-row">
+            <input
+              className="postos-destino-input"
+              type="text"
+              placeholder="Destino (ex: Juiz de Fora MG)"
+              value={destinoTexto}
+              onChange={(e) => setDestinoTexto(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && buscarDestino()}
+            />
+            <button
+              className="postos-destino-btn"
+              onClick={buscarDestino}
+              disabled={geocodandoDestino || !destinoTexto.trim()}
+            >
+              {geocodandoDestino ? '...' : 'Buscar'}
+            </button>
+          </div>
+          {erroDestino && <div className="postos-destino-erro">{erroDestino}</div>}
+          {destino && (
+            <div className="postos-destino-info">
+              🏁 <strong>{destino.nome}</strong>
+            </div>
+          )}
+          <div className="postos-corredor-row">
+            <span className="postos-corredor-label">Corredor:</span>
+            {[20000, 40000, 60000, 100000].map((c) => (
+              <button
+                key={c}
+                className={`postos-corredor-btn${corredorKm === c ? ' ativo' : ''}`}
+                onClick={() => onCorredorChange(c)}
+              >
+                {c / 1000} km
+              </button>
+            ))}
+          </div>
+          <div className="postos-ordem-toggle" style={{ marginTop: '6px' }}>
+            <button className={`postos-ordem-btn${ordem === 'distancia' ? ' ativo' : ''}`} onClick={() => setOrdem('distancia')}>Na rota</button>
+            <button className={`postos-ordem-btn${ordem === 'preco' ? ' ativo' : ''}`} onClick={() => setOrdem('preco')}>Menor Preço</button>
+          </div>
+        </div>
+      )}
 
       {/* Filtro com preço */}
       <div className="postos-filtro-bar">
@@ -201,7 +285,7 @@ export default function PostosPanel({
               </button>
             </>
           ) : (
-            <p>Nenhum posto credenciado CTF neste raio</p>
+            <p>{modoRota ? 'Nenhum posto credenciado CTF nesta rota' : 'Nenhum posto credenciado CTF neste raio'}</p>
           )}
         </div>
       ) : (
@@ -227,16 +311,24 @@ export default function PostosPanel({
                 className={`posto-card${eSelecionado ? ' selecionado' : ''}${grupos.length ? ' melhor-preco' : ''}${!pTemPreco ? ' sem-preco-card' : ''}`}
                 onClick={() => onPostoClick(posto)}
               >
-                {/* Linha 1: nome + distância */}
+                {/* Linha 1: nome + distância / posição na rota */}
                 <div className="posto-linha-top">
                   <span className="posto-nome">{posto.nome}</span>
-                  <span
-                    className="posto-distancia"
-                    title={aprox ? 'Localização aproximada (centroide da cidade)' : 'Localização exata (geocoding por endereço)'}
-                  >
-                    {aprox && <span className="posto-aprox">≈</span>}
-                    {formatarDistancia(posto.distancia)}
-                  </span>
+                  {modoRota && posto.distanciaRota != null ? (
+                    <span className="posto-distancia posto-rota-pos" title={`${posto.desvioRota?.toFixed(1)} km do traçado`}>
+                      {aprox && <span className="posto-aprox">≈</span>}
+                      {posto.distanciaRota.toFixed(0)} km
+                      {posto.desvioRota > 0.5 && <span className="posto-desvio"> +{posto.desvioRota.toFixed(0)}km</span>}
+                    </span>
+                  ) : (
+                    <span
+                      className="posto-distancia"
+                      title={aprox ? 'Localização aproximada (centroide da cidade)' : 'Localização exata (geocoding por endereço)'}
+                    >
+                      {aprox && <span className="posto-aprox">≈</span>}
+                      {formatarDistancia(posto.distancia)}
+                    </span>
+                  )}
                 </div>
 
                 {/* Linha 2: endereço */}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Tooltip, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import PostosPanel from './PostosPanel';
 import {
@@ -117,6 +117,11 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
   const [expandiuAuto, setExpandiuAuto] = useState(false);
   const [comPrecoTotal, setComPrecoTotal] = useState(0);
 
+  // Estado de rota
+  const [modoRota, setModoRota] = useState(false);
+  const [destino, setDestino] = useState(null); // { lat, lon, nome }
+  const [corredorKm, setCorredorKm] = useState(40000); // metros
+
   const noMapa = useMemo(() => {
     return veiculos.filter((v) =>
       v.lat && v.lon && !(v.lat === 0 && v.lon === 0) &&
@@ -145,7 +150,7 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
 
   const vei = selecionado ? veiculos.find((v) => v.veiID === selecionado) : null;
 
-  async function buscarPostos(veiculo, raio = raioPostos) {
+  async function buscarPostos(veiculo, raio = raioPostos, dest = destino, corredor = corredorKm) {
     if (!veiculo?.lat || !veiculo?.lon) return;
     setModoPostos(true);
     setPostosVeiculo(veiculo);
@@ -155,7 +160,11 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
     setPostoSelecionado(null);
 
     try {
-      const resp = await fetch(`/api/postos?lat=${veiculo.lat}&lon=${veiculo.lon}&raio=${raio}`);
+      let url = `/api/postos?lat=${veiculo.lat}&lon=${veiculo.lon}&raio=${raio}`;
+      if (dest?.lat && dest?.lon) {
+        url += `&destLat=${dest.lat}&destLon=${dest.lon}&corredor=${corredor}`;
+      }
+      const resp = await fetch(url);
       const data = await resp.json();
       if (data.erro) throw new Error(data.erro);
       setPostos(data.postos || []);
@@ -176,11 +185,25 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
     setPostoSelecionado(null);
     setPostosErro(null);
     setPostosVeiculo(null);
+    setModoRota(false);
+    setDestino(null);
   }
 
   async function mudarRaio(novoRaio) {
     setRaioPostos(novoRaio);
     if (postosVeiculo) await buscarPostos(postosVeiculo, novoRaio);
+  }
+
+  async function aplicarRota(novoDestino, novoCorredor = corredorKm) {
+    setDestino(novoDestino);
+    setCorredorKm(novoCorredor);
+    if (postosVeiculo) await buscarPostos(postosVeiculo, raioPostos, novoDestino, novoCorredor);
+  }
+
+  async function limparRota() {
+    setModoRota(false);
+    setDestino(null);
+    if (postosVeiculo) await buscarPostos(postosVeiculo, raioPostos, null, corredorKm);
   }
 
   const veiLatLon = postosVeiculo?.lat && postosVeiculo?.lon
@@ -212,6 +235,31 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
           )}
 
           <FitPostosBounds veiLatLon={veiLatLon} postos={postos} ativo={modoPostos && postos.length > 0} />
+
+          {/* Linha de rota: veículo → destino */}
+          {modoRota && destino && veiLatLon && (
+            <Polyline
+              positions={[veiLatLon, [destino.lat, destino.lon]]}
+              pathOptions={{ color: '#f59e0b', weight: 3, dashArray: '10 8', opacity: 0.8 }}
+            />
+          )}
+
+          {/* Marcador de destino */}
+          {modoRota && destino && (
+            <Marker
+              position={[destino.lat, destino.lon]}
+              icon={L.divIcon({
+                className: '',
+                html: `<div class="marcador-destino">🏁</div>`,
+                iconSize: [32, 32],
+                iconAnchor: [16, 16],
+              })}
+            >
+              <Tooltip permanent direction="top" offset={[0, -18]} className="tooltip-destino">
+                {destino.nome}
+              </Tooltip>
+            </Marker>
+          )}
 
           {/* Marcadores de veículos */}
           {noMapaFiltrado.map((v) => (
@@ -311,6 +359,12 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
             onPostoClick={setPostoSelecionado}
             geocodeStatus={geocodeStatus}
             comPreco={comPrecoTotal}
+            modoRota={modoRota}
+            destino={destino}
+            corredorKm={corredorKm}
+            onModoRotaChange={(v) => { setModoRota(v); if (!v) limparRota(); }}
+            onAplicarRota={aplicarRota}
+            onCorredorChange={(c) => { setCorredorKm(c); if (destino) aplicarRota(destino, c); }}
           />
         ) : vei ? (
           /* Detalhe do veículo */

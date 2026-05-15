@@ -1605,18 +1605,65 @@ function montarPostoItem(posto, coord, distancia, precosMap) {
   };
 }
 
+// Projeta um ponto em uma rota A→B.
+// Retorna t (0=em A, 1=em B), distPerpKm (desvio lateral) e distRotaKm (km desde A).
+function projetarNaRota(lat, lon, aLat, aLon, bLat, bLon) {
+  const cosLat = Math.cos(((aLat + bLat) / 2) * Math.PI / 180);
+  const dx = (bLon - aLon) * cosLat;
+  const dy = bLat - aLat;
+  const len2 = dx * dx + dy * dy;
+
+  const px = (lon - aLon) * cosLat;
+  const py = lat - aLat;
+
+  const t = len2 > 0 ? (px * dx + py * dy) / len2 : 0;
+
+  const dpx = px - t * dx;
+  const dpy = py - t * dy;
+  const distPerpKm = Math.sqrt(dpx * dpx + dpy * dpy) * 111;
+  const distRotaKm = t * Math.sqrt(dx * dx + dy * dy) * 111;
+
+  return { t, distPerpKm, distRotaKm };
+}
+
+app.get('/api/geocode', async (req, res) => {
+  const { q } = req.query;
+  if (!q) return res.status(400).json({ erro: 'q é obrigatório' });
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&country=Brazil&format=json&limit=1&addressdetails=1`;
+    const resp = await fetch(url, { headers: { 'User-Agent': 'PainelFrotas/3.0 (coopertruni)' } });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (!data || !data[0]) return res.status(404).json({ erro: 'Destino não encontrado' });
+    const r = data[0];
+    res.json({
+      lat: parseFloat(r.lat),
+      lon: parseFloat(r.lon),
+      nome: r.display_name.split(',').slice(0, 2).join(',').trim(),
+    });
+  } catch (e) {
+    res.status(502).json({ erro: `Geocoding falhou: ${e.message}` });
+  }
+});
+
 app.get('/api/postos', async (req, res) => {
   if (!CTF_USER || !CTF_PASS) {
     return res.status(503).json({ erro: 'Credenciais CTF não configuradas (CTF_USER/CTF_PASS ausentes)' });
   }
 
-  const { lat, lon, raio = '20000', expandir } = req.query;
+  const { lat, lon, raio = '20000', expandir, destLat, destLon, corredor = '40000' } = req.query;
   if (!lat || !lon) return res.status(400).json({ erro: 'lat e lon são obrigatórios' });
 
   const latN = parseFloat(lat);
   const lonN = parseFloat(lon);
   const raioInicial = Math.min(parseInt(raio) || 20000, 200000) / 1000;
   const autoExpandir = expandir !== 'off';
+
+  // Modo rota
+  const modoRota = destLat && destLon;
+  const destLatN = modoRota ? parseFloat(destLat) : null;
+  const destLonN = modoRota ? parseFloat(destLon) : null;
+  const corredorKm = Math.min(parseInt(corredor) || 40000, 200000) / 1000;
 
   if (isNaN(latN) || isNaN(lonN)) return res.status(400).json({ erro: 'lat/lon inválidos' });
 
@@ -1637,19 +1684,32 @@ app.get('/api/postos', async (req, res) => {
       if (!geocodeAtivo) processarFilaGeocode();
     }
 
-    // 2) Função que coleta postos no raio. Mantém apenas postos onde a
-    // frota efetivamente paga via aplicativo CTF (fonte=acordo no T9). Postos
-    // somente do T149 são preços-bomba publicados mas que a frota nunca usou
-    // — não há garantia de que aceitam pagamento via app.
+    // 2) Coleta postos — modo raio ou modo rota.
     const coletar = (raioKm) => {
       const lista = [];
       for (const posto of Object.values(postosMap)) {
         const coord = resolverCoordPosto(posto);
         if (!coord) continue;
-        const dist = calcularDistanciaKm(latN, lonN, coord.lat, coord.lon);
-        if (dist > raioKm) continue;
-        const item = montarPostoItem(posto, coord, dist, precosMap);
-        if (!item.temAcordo) continue; // só postos que aceitam pagamento via app
+
+        let item;
+        if (modoRota) {
+          const { t, distPerpKm, distRotaKm } = projetarNaRota(
+            coord.lat, coord.lon, latN, lonN, destLatN, destLonN
+          );
+          // Fora do corredor, muito atrás da origem (-10%) ou muito além do destino (+10%)
+          if (distPerpKm > corredorKm || t < -0.1 || t > 1.1) continue;
+          const dist = calcularDistanciaKm(latN, lonN, coord.lat, coord.lon);
+          item = montarPostoItem(posto, coord, dist, precosMap);
+          item.distanciaRota = Math.round(distRotaKm * 10) / 10; // km na rota
+          item.desvioRota = Math.round(distPerpKm * 10) / 10;    // km fora da linha
+          item.posicaoRota = t;                                   // 0=origem…1=destino
+        } else {
+          const dist = calcularDistanciaKm(latN, lonN, coord.lat, coord.lon);
+          if (dist > raioKm) continue;
+          item = montarPostoItem(posto, coord, dist, precosMap);
+        }
+
+        if (!item.temAcordo) continue;
         lista.push(item);
       }
       return lista;
@@ -1660,9 +1720,8 @@ app.get('/api/postos', async (req, res) => {
     let comPreco = postos.length;
     let expandiuAuto = false;
 
-    // 3) Auto-expansão: se NENHUM posto com app foi achado, aumenta raio
-    // até achar (até 150km).
-    if (autoExpandir && comPreco === 0) {
+    // 3) Auto-expansão (só no modo raio): aumenta até achar postos.
+    if (!modoRota && autoExpandir && comPreco === 0) {
       for (const raioTeste of [Math.max(raioKm, 30), 60, 100, 150]) {
         if (raioTeste <= raioKm) continue;
         const lista = coletar(raioTeste);
@@ -1676,7 +1735,12 @@ app.get('/api/postos', async (req, res) => {
       }
     }
 
-    postos.sort((a, b) => a.distancia - b.distancia);
+    // Ordena: rota → posição ao longo da rota; raio → distância
+    if (modoRota) {
+      postos.sort((a, b) => a.posicaoRota - b.posicaoRota);
+    } else {
+      postos.sort((a, b) => a.distancia - b.distancia);
+    }
 
     // 4) Agenda geocoding por endereço para postos visíveis ainda imprecisos
     // (qualquer fonte diferente de 'endereco' ou 'bairro' precisa refino).
@@ -1709,7 +1773,7 @@ app.get('/api/postos', async (req, res) => {
       .filter((v) => v?.fonte === 'endereco' || v?.fonte === 'bairro').length;
 
     log.info('CTF Postos',
-      `${postos.length} em ${raioKm}km (preço:${comPreco}, exp:${expandiuAuto}) | geoc cidades:${geocodadas}/${totalCidades} postos:${porEndereco}/${totalPostosGeoc}`
+      `${postos.length} ${modoRota ? `na rota (corredor ${corredorKm}km)` : `em ${raioKm}km (exp:${expandiuAuto})`} | preço:${comPreco} | geoc cidades:${geocodadas}/${totalCidades} postos:${porEndereco}/${totalPostosGeoc}`
     );
 
     res.json({
@@ -1719,6 +1783,7 @@ app.get('/api/postos', async (req, res) => {
       raioOriginal: raioInicial * 1000,
       expandiuAuto,
       comPreco,
+      modoRota: !!modoRota,
       geocodeStatus: { geocodadas, totalCidades, postosGeocodificados: totalPostosGeoc, porEndereco },
     });
   } catch (err) {
