@@ -1769,23 +1769,102 @@ function projetarNaRota(lat, lon, aLat, aLon, bLat, bLon) {
   return { t, distPerpKm, distRotaKm };
 }
 
+// Cache LRU-leve para destinos digitados pelo usuário. Mesma string ≡ mesmo
+// resultado por 24h. Evita martelar o Nominatim quando o usuário troca rota
+// várias vezes ou re-aplica a mesma cidade.
+const destinoCache = new Map();
+const DESTINO_CACHE_TTL = 24 * 60 * 60 * 1000;
+const DESTINO_CACHE_MAX = 200;
+
+function destinoCacheGet(q) {
+  const v = destinoCache.get(q);
+  if (!v) return null;
+  if (Date.now() - v.ts > DESTINO_CACHE_TTL) {
+    destinoCache.delete(q);
+    return null;
+  }
+  // Move-to-end (LRU)
+  destinoCache.delete(q);
+  destinoCache.set(q, v);
+  return v.data;
+}
+
+function destinoCachePut(q, data) {
+  if (destinoCache.size >= DESTINO_CACHE_MAX) {
+    destinoCache.delete(destinoCache.keys().next().value);
+  }
+  destinoCache.set(q, { ts: Date.now(), data });
+}
+
+// Tenta resolver "Cidade, UF" (ou "Cidade - UF", "Cidade UF") via IBGE primeiro
+// — instantâneo, sem rate-limit. Só cai pro Nominatim se IBGE não bater.
+function resolverPorIBGE(q) {
+  const lookup = ibgeLookup || {};
+  if (!Object.keys(lookup).length) return null;
+  // Padrões: "cidade, UF" | "cidade - UF" | "cidade UF" (final).
+  const m = String(q).trim().match(/^(.+?)[\s,;\-]+([A-Za-z]{2})\s*$/);
+  if (!m) return null;
+  const cidade = normalizarNome(m[1]);
+  const uf = m[2].toUpperCase();
+  const coord = lookup[`${cidade}|${uf}`];
+  if (!coord) return null;
+  return { lat: coord.lat, lon: coord.lon, nome: `${m[1].trim()}, ${uf}` };
+}
+
+async function buscarNominatim(q, tentativas = 2) {
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&country=Brazil&format=json&limit=1&addressdetails=1`;
+  let ultimoErro = null;
+  for (let i = 0; i < tentativas; i++) {
+    if (i > 0) await delay(1500); // backoff antes da retentativa
+    try {
+      const resp = await fetch(url, {
+        headers: { 'User-Agent': 'PainelFrotas/3.0 (fleet management; coopertruni)' },
+      });
+      if (resp.status === 429) {
+        ultimoErro = new Error('Nominatim limitou a taxa (429). Aguarde alguns segundos.');
+        continue;
+      }
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return await resp.json();
+    } catch (e) {
+      ultimoErro = e;
+    }
+  }
+  throw ultimoErro || new Error('Falha desconhecida');
+}
+
 app.get('/api/geocode', async (req, res) => {
   const { q } = req.query;
   if (!q) return res.status(400).json({ erro: 'q é obrigatório' });
+
+  // 1) Cache em memória — destinos repetidos não tocam o Nominatim.
+  const cached = destinoCacheGet(q);
+  if (cached) return res.json(cached);
+
+  // 2) IBGE local — resolve "Cidade, UF" sem chamada externa.
+  const viaIBGE = resolverPorIBGE(q);
+  if (viaIBGE) {
+    destinoCachePut(q, viaIBGE);
+    return res.json(viaIBGE);
+  }
+
+  // 3) Nominatim com retry em 429.
   try {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&country=Brazil&format=json&limit=1&addressdetails=1`;
-    const resp = await fetch(url, { headers: { 'User-Agent': 'PainelFrotas/3.0 (coopertruni)' } });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
+    const data = await buscarNominatim(q);
     if (!data || !data[0]) return res.status(404).json({ erro: 'Destino não encontrado' });
     const r = data[0];
-    res.json({
+    const out = {
       lat: parseFloat(r.lat),
       lon: parseFloat(r.lon),
       nome: r.display_name.split(',').slice(0, 2).join(',').trim(),
-    });
+    };
+    destinoCachePut(q, out);
+    res.json(out);
   } catch (e) {
-    res.status(502).json({ erro: `Geocoding falhou: ${e.message}` });
+    const msg = /429/.test(e.message)
+      ? 'Serviço de mapas está limitando requisições. Tente novamente em alguns segundos ou digite "Cidade, UF".'
+      : `Geocoding falhou: ${e.message}`;
+    res.status(/429/.test(e.message) ? 429 : 502).json({ erro: msg });
   }
 });
 

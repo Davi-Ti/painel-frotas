@@ -135,8 +135,26 @@ export default function PostosPanel({
     setErroDestino(null);
     try {
       const resp = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
-      const data = await resp.json();
-      if (data.erro) throw new Error(data.erro);
+      const texto = await resp.text();
+      let data;
+      try {
+        data = texto ? JSON.parse(texto) : {};
+      } catch {
+        throw new Error(
+          !resp.ok
+            ? `Servidor retornou ${resp.status}. Tente novamente.`
+            : 'Resposta inválida do servidor.'
+        );
+      }
+      if (!resp.ok || data.erro) {
+        // Dica útil quando bater rate-limit: sugere formato Cidade, UF
+        // (que resolve via IBGE local, sem chamar Nominatim).
+        const msg = data.erro || `Servidor retornou ${resp.status}`;
+        if (resp.status === 429 && !/,/.test(q)) {
+          throw new Error(`${msg} Dica: digite "Cidade, UF" (ex: "Juiz de Fora, MG").`);
+        }
+        throw new Error(msg);
+      }
       onAplicarRota({ lat: data.lat, lon: data.lon, nome: data.nome });
     } catch (e) {
       setErroDestino(e.message);
