@@ -1796,19 +1796,43 @@ function destinoCachePut(q, data) {
   destinoCache.set(q, { ts: Date.now(), data });
 }
 
-// Tenta resolver "Cidade, UF" (ou "Cidade - UF", "Cidade UF") via IBGE primeiro
-// — instantâneo, sem rate-limit. Só cai pro Nominatim se IBGE não bater.
+// Tenta resolver via IBGE primeiro — instantâneo, sem rate-limit.
+// Estratégia:
+//   1) "Cidade, UF" / "Cidade UF" / "Cidade - UF" → match direto pela chave.
+//   2) Só "Cidade" — se existe APENAS UMA cidade com esse nome no Brasil
+//      (caso de Juiz de Fora — só MG), resolve sem precisar de UF.
+//   3) Caso contrário (ambígua ou desconhecida), null → cai pro Nominatim.
 function resolverPorIBGE(q) {
   const lookup = ibgeLookup || {};
   if (!Object.keys(lookup).length) return null;
-  // Padrões: "cidade, UF" | "cidade - UF" | "cidade UF" (final).
-  const m = String(q).trim().match(/^(.+?)[\s,;\-]+([A-Za-z]{2})\s*$/);
-  if (!m) return null;
-  const cidade = normalizarNome(m[1]);
-  const uf = m[2].toUpperCase();
-  const coord = lookup[`${cidade}|${uf}`];
-  if (!coord) return null;
-  return { lat: coord.lat, lon: coord.lon, nome: `${m[1].trim()}, ${uf}` };
+  const texto = String(q).trim();
+
+  // (1) Tem UF no fim?
+  const comUf = texto.match(/^(.+?)[\s,;\-]+([A-Za-z]{2})\s*$/);
+  if (comUf) {
+    const cidade = normalizarNome(comUf[1]);
+    const uf = comUf[2].toUpperCase();
+    const coord = lookup[`${cidade}|${uf}`];
+    if (coord) return { lat: coord.lat, lon: coord.lon, nome: `${comUf[1].trim()}, ${uf}` };
+    return null;
+  }
+
+  // (2) Sem UF — busca por nome em todas as UFs.
+  const cidadeNorm = normalizarNome(texto);
+  const matches = [];
+  for (const chave in lookup) {
+    const sep = chave.indexOf('|');
+    if (sep < 0) continue;
+    if (chave.slice(0, sep) === cidadeNorm) {
+      matches.push({ uf: chave.slice(sep + 1), coord: lookup[chave] });
+      if (matches.length > 1) break; // ambígua, não vale a pena continuar
+    }
+  }
+  if (matches.length === 1) {
+    const { uf, coord } = matches[0];
+    return { lat: coord.lat, lon: coord.lon, nome: `${texto}, ${uf}` };
+  }
+  return null;
 }
 
 async function buscarNominatim(q, tentativas = 2) {
