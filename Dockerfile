@@ -50,9 +50,14 @@ RUN corepack enable && corepack prepare pnpm@9.15.0 --activate \
 COPY --from=builder /app/server.js ./
 COPY --from=builder /app/dist ./dist
 
+# Garante que appuser possa escrever cache em /app (.cache-*.json)
+RUN chown -R appuser:appgroup /app
+
 # Variáveis sensíveis vêm pelo --env-file ou docker-compose
 ENV NODE_ENV=production
 ENV PORT=3001
+# Heap maior evita OOM ao carregar preços CTF (templates 9/149 são grandes)
+ENV NODE_OPTIONS=--max-old-space-size=460
 
 # Porta exposta
 EXPOSE 3001

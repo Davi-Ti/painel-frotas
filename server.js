@@ -119,7 +119,14 @@ function carregarCache() {
   }
 }
 
-function salvarCache() {
+// Throttle: persiste no máximo uma vez por minuto. Polling roda a cada 35s
+// e gravar a cada ciclo é overkill (cache é só warm-start).
+let _cachePending = false;
+let _cacheUltimoSalvo = 0;
+let _cacheEacces = false; // após o primeiro EACCES, suprime logs até o próximo OK
+const CACHE_MIN_INTERVALO = 60 * 1000;
+
+function _gravarCacheSync() {
   try {
     const dados = {
       veiculos: db.veiculos,
@@ -130,9 +137,33 @@ function salvarCache() {
       salvoEm: new Date().toISOString(),
     };
     fs.writeFileSync(CACHE_PATH, JSON.stringify(dados));
+    if (_cacheEacces) {
+      log.info('Cache', 'Gravação voltou a funcionar');
+      _cacheEacces = false;
+    }
+    _cacheUltimoSalvo = Date.now();
   } catch (err) {
-    log.warn('Cache', `Falha ao salvar: ${err.message}`);
+    if (err.code === 'EACCES' || err.code === 'EPERM') {
+      if (!_cacheEacces) {
+        log.warn('Cache', `Sem permissão de escrita em ${CACHE_PATH} — operação continua sem persistência`);
+        _cacheEacces = true;
+      }
+    } else {
+      log.warn('Cache', `Falha ao salvar: ${err.message}`);
+    }
   }
+}
+
+function salvarCache() {
+  const agora = Date.now();
+  if (agora - _cacheUltimoSalvo >= CACHE_MIN_INTERVALO) {
+    _gravarCacheSync();
+    return;
+  }
+  if (_cachePending) return;
+  _cachePending = true;
+  const delayMs = Math.max(0, CACHE_MIN_INTERVALO - (agora - _cacheUltimoSalvo));
+  setTimeout(() => { _cachePending = false; _gravarCacheSync(); }, delayMs).unref?.();
 }
 
 // Equipamentos (API v6.7)
@@ -1158,20 +1189,24 @@ async function ctfSOAPCall(codTemplate, qtd = 9999, ponteiro = 0) {
   });
   if (!resp.ok) throw new Error(`CTF SOAP retornou ${resp.status}`);
 
-  const xml = await resp.text();
+  let xml = await resp.text();
   const match = xml.match(/<RecuperarCopiaResult>([\s\S]*?)<\/RecuperarCopiaResult>/);
+  // Libera o envelope completo o quanto antes — para T9/T149 são vários MB.
+  xml = null;
   if (!match) throw new Error('CTF: RecuperarCopiaResult não encontrado');
 
-  const innerXml = match[1]
-    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+  // Decodifica entidades em uma única passada (evita 5 strings intermediárias).
+  const ENT = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" };
+  let innerXml = match[1].replace(/&(lt|gt|amp|quot|apos);/g, (_, n) => ENT[n]);
 
-  return parseStringPromise(innerXml, {
+  const resultado = await parseStringPromise(innerXml, {
     explicitArray: false,
     ignoreAttrs: true,
     trim: true,
     emptyTag: null,
   });
+  innerXml = null;
+  return resultado;
 }
 
 async function carregarPostosCTF() {
@@ -1309,34 +1344,50 @@ function classificarCombustivel(codigo, nomeFallback = '') {
 }
 
 // Paginação Template 9 (Abastecimentos) — usa PONTEIRO crescente.
-async function carregarAbastecimentosCTF(maxRegs = 30000) {
-  const todos = [];
+// Stream: invoca onPage(rows) por página e DESCARTA a página em seguida.
+// Mantemos só o agregado relevante (mapa de preços por posto), nunca os
+// ~40k registros brutos vivos no heap ao mesmo tempo.
+async function carregarAbastecimentosCTF(onPage, maxRegs = 25000) {
   let ponteiro = 0;
-  for (let pagina = 0; pagina < 20 && todos.length < maxRegs; pagina++) {
+  let total = 0;
+  for (let pagina = 0; pagina < 20 && total < maxRegs; pagina++) {
     const data = await ctfSOAP(9, 9999, ponteiro);
-    const rows = paraArray(data?.ABASTECIMENTOS?.ABASTECIMENTOSRow || []);
+    let rows = paraArray(data?.ABASTECIMENTOS?.ABASTECIMENTOSRow || []);
     if (rows.length === 0) break;
-    todos.push(...rows);
 
     let maxP = ponteiro;
     for (const r of rows) {
       const p = parseInt(Array.isArray(r.PONTEIRO) ? r.PONTEIRO[0] : r.PONTEIRO);
       if (!isNaN(p) && p > maxP) maxP = p;
     }
+
+    total += rows.length;
+    await onPage(rows);
+    rows = null; // libera a página pro GC antes do próximo fetch.
+
     if (maxP <= ponteiro) break;
     ponteiro = maxP;
   }
-  return todos;
+  return total;
 }
 
 async function ctfSOAP(codTemplate, qtd = 9999, ponteiro = 0) {
   return ctfSOAPCall(codTemplate, qtd, ponteiro);
 }
 
+let precosCTFInflight = null;
+
 async function carregarPrecosCTF() {
   const agora = Date.now();
   if (ctfCache.precos && agora - ctfCache.precosTs < CTF_TTL_PRECOS) return ctfCache.precos;
+  // Serializa: requests concorrentes esperam pela mesma carga (evita 2x heap).
+  if (precosCTFInflight) return precosCTFInflight;
+  precosCTFInflight = _carregarPrecosCTF().finally(() => { precosCTFInflight = null; });
+  return precosCTFInflight;
+}
 
+async function _carregarPrecosCTF() {
+  const agora = Date.now();
   const normId = (s) => String(s || '').trim().replace(/^0+(?=\d)/, '');
   const sval = (v) => Array.isArray(v) ? String(v[0] || '') : String(v || '');
   const mapa = {};
@@ -1349,40 +1400,39 @@ async function carregarPrecosCTF() {
   log.info('CTF', 'Carregando abastecimentos (Template 9 — preço com acordo AEP)...');
   let totalT9 = 0;
   try {
-    const abastecimentos = await carregarAbastecimentosCTF(40000);
-    totalT9 = abastecimentos.length;
+    totalT9 = await carregarAbastecimentosCTF(async (rows) => {
+      for (const r of rows) {
+        const id = normId(sval(r.COD_POSTO));
+        if (!id) continue;
+        const cat = classificarCombustivel(sval(r.CD_COMBUSTIVEL), sval(r.DC_COMBUSTIVEL));
+        if (!cat) continue;
 
-    for (const r of abastecimentos) {
-      const id = normId(sval(r.COD_POSTO));
-      if (!id) continue;
-      const cat = classificarCombustivel(sval(r.CD_COMBUSTIVEL), sval(r.DC_COMBUSTIVEL));
-      if (!cat) continue;
+        // Preferência: VL_PRECO_AEP (já com desconto) → fallback VL_PRECO_UNITARIO.
+        const valorAEP   = parseFloat(sval(r.VL_PRECO_AEP).replace(',', '.'));
+        const valorBruto = parseFloat(sval(r.VL_PRECO_UNITARIO).replace(',', '.'));
+        const valor = (precoValido(cat, valorAEP) ? valorAEP
+                     : precoValido(cat, valorBruto) ? valorBruto
+                     : null);
+        if (!valor) continue;
 
-      // Preferência: VL_PRECO_AEP (já com desconto) → fallback VL_PRECO_UNITARIO.
-      const valorAEP   = parseFloat(sval(r.VL_PRECO_AEP).replace(',', '.'));
-      const valorBruto = parseFloat(sval(r.VL_PRECO_UNITARIO).replace(',', '.'));
-      const valor = (precoValido(cat, valorAEP) ? valorAEP
-                   : precoValido(cat, valorBruto) ? valorBruto
-                   : null);
-      if (!valor) continue;
+        const dtStr = sval(r.DT_EVENTO) || sval(r.DT_PROCESS) || null;
+        const ts = parseDtBR(dtStr);
+        if (!ts || !precoRecente(ts)) continue;
 
-      const dtStr = sval(r.DT_EVENTO) || sval(r.DT_PROCESS) || null;
-      const ts = parseDtBR(dtStr);
-      if (!ts || !precoRecente(ts)) continue;
-
-      if (!mapa[id]) mapa[id] = { _ts: {}, _src: {} };
-      // Mantém o mais recente por categoria.
-      if (!mapa[id]._ts[cat] || ts > mapa[id]._ts[cat]) {
-        mapa[id][cat] = valor;
-        mapa[id]._ts[cat] = ts;
-        mapa[id]._src[cat] = 'acordo'; // marcador: este preço veio de T9 (acordo aplicado)
-        mapa[id][`${cat}_dt`] = dtStr;
-        if (!mapa[id].atualizado_ts || ts > mapa[id].atualizado_ts) {
-          mapa[id].atualizado_ts = ts;
-          mapa[id].atualizado = dtStr;
+        if (!mapa[id]) mapa[id] = { _ts: {}, _src: {} };
+        // Mantém o mais recente por categoria.
+        if (!mapa[id]._ts[cat] || ts > mapa[id]._ts[cat]) {
+          mapa[id][cat] = valor;
+          mapa[id]._ts[cat] = ts;
+          mapa[id]._src[cat] = 'acordo';
+          mapa[id][`${cat}_dt`] = dtStr;
+          if (!mapa[id].atualizado_ts || ts > mapa[id].atualizado_ts) {
+            mapa[id].atualizado_ts = ts;
+            mapa[id].atualizado = dtStr;
+          }
         }
       }
-    }
+    });
     log.info('CTF', `T9: ${totalT9} abastecimentos → ${Object.keys(mapa).length} postos com preço c/acordo`);
   } catch (e) {
     log.warn('CTF', `T9 falhou (continua com T149): ${e.message}`);
@@ -1390,8 +1440,10 @@ async function carregarPrecosCTF() {
 
   // ── Template 149: preço bomba publicado pelo posto (sem acordo) ──
   log.info('CTF', 'Carregando preços bomba (Template 149)...');
-  const data = await ctfSOAP(149);
-  const rowsT149 = paraArray(data?.Preco_Bomba?.Preco_BombaRow || []);
+  let dataT149 = await ctfSOAP(149);
+  let rowsT149 = paraArray(dataT149?.Preco_Bomba?.Preco_BombaRow || []);
+  dataT149 = null; // libera o wrapper assim que extraímos as linhas
+  const totalT149 = rowsT149.length;
   let usadosT149 = 0;
 
   for (const r of rowsT149) {
@@ -1426,6 +1478,7 @@ async function carregarPrecosCTF() {
       }
     }
   }
+  rowsT149 = null; // libera a página inteira pro GC
 
   // Sanidade física: aditivado SEMPRE custa mais (ou igual) que a versão
   // comum. Se o aditivado está mais barato no mesmo posto, é leitura
@@ -1468,7 +1521,7 @@ async function carregarPrecosCTF() {
 
   ctfCache.precos = mapa;
   ctfCache.precosTs = agora;
-  log.info('CTF', `Preços consolidados: ${Object.keys(mapa).length} postos | T9=${totalT9} (${totalAcordo} preços c/ acordo) | T149=${rowsT149.length} (${usadosT149} preços bomba)`);
+  log.info('CTF', `Preços consolidados: ${Object.keys(mapa).length} postos | T9=${totalT9} (${totalAcordo} preços c/ acordo) | T149=${totalT149} (${usadosT149} preços bomba)`);
 
   return mapa;
 }
@@ -1857,7 +1910,7 @@ const server = app.listen(PORT, () => {
 function encerrar(sinal) {
   log.info('Server', `${sinal} recebido — encerrando...`);
   intervalos.forEach(clearInterval);
-  salvarCache();
+  _gravarCacheSync();
   server.close(() => {
     log.info('Server', 'Encerrado.');
     process.exit(0);

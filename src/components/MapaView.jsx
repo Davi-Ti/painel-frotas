@@ -177,7 +177,19 @@ export default function MapaView({ veiculos, fitCounter = 0 }) {
         url += `&destLat=${dest.lat}&destLon=${dest.lon}&corredor=${corredor}`;
       }
       const resp = await fetch(url);
-      const data = await resp.json();
+      const texto = await resp.text();
+      let data;
+      try {
+        data = texto ? JSON.parse(texto) : {};
+      } catch {
+        // Servidor pode ter caído ou retornado HTML — devolve mensagem amigável.
+        throw new Error(
+          !resp.ok
+            ? `Servidor retornou ${resp.status}. Tente novamente em alguns segundos.`
+            : 'Resposta inválida do servidor. Tente novamente.'
+        );
+      }
+      if (!resp.ok) throw new Error(data.erro || `Servidor retornou ${resp.status}`);
       if (data.erro) throw new Error(data.erro);
       setPostos(data.postos || []);
       if (data.geocodeStatus) setGeocodeStatus(data.geocodeStatus);
