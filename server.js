@@ -953,8 +953,12 @@ const ctfCache = {
   geocode: {},      // 'CIDADE|UF' → { lat, lon } (centroide da cidade — fallback)
   geocodePosto: {}, // postoId → { lat, lon, fonte: 'endereco' | 'cidade' | 'cidade_jitter', falhou? }
 };
-const CTF_TTL_POSTOS = 60 * 60 * 1000;
-const CTF_TTL_PRECOS = 10 * 60 * 1000;
+// TTLs longos — combustível não muda tanto, e refazer a carga é caro
+// (10 a 30s + pico de memória). Cache em disco sobrevive a restarts.
+const CTF_TTL_POSTOS = 24 * 60 * 60 * 1000;
+const CTF_TTL_PRECOS = 6 * 60 * 60 * 1000;
+const CTF_POSTOS_DISK = path.join(__dirname, '.cache-ctf-postos.json');
+const CTF_PRECOS_DISK = path.join(__dirname, '.cache-ctf-precos.json');
 
 let geocodeQueue = [];           // [cidade, uf] pendentes
 let geocodePostoQueue = [];      // [posto] pendentes (geocoding por endereço)
@@ -990,6 +994,49 @@ function salvarGeocodePostosCache() {
   try {
     fs.writeFileSync(CTF_GEOCODE_POSTO_PATH, JSON.stringify(ctfCache.geocodePosto));
   } catch {}
+}
+
+// Persiste postos/preços em disco. Em caso de restart (Render reinicia muito)
+// reidratamos a cache sem precisar bater na API CTF de novo — o que economiza
+// um pico de memória grande e ~10s de cold start.
+function salvarCtfDisco(qual) {
+  try {
+    if ((qual === 'postos' || !qual) && ctfCache.postos) {
+      fs.writeFileSync(CTF_POSTOS_DISK,
+        JSON.stringify({ ts: ctfCache.postosTs, data: ctfCache.postos }));
+    }
+    if ((qual === 'precos' || !qual) && ctfCache.precos) {
+      fs.writeFileSync(CTF_PRECOS_DISK,
+        JSON.stringify({ ts: ctfCache.precosTs, data: ctfCache.precos }));
+    }
+  } catch (e) {
+    // EACCES é tratado pela mensagem genérica de cache; aqui só ignora.
+  }
+}
+
+function carregarCtfDisco() {
+  try {
+    if (fs.existsSync(CTF_POSTOS_DISK)) {
+      const obj = JSON.parse(fs.readFileSync(CTF_POSTOS_DISK, 'utf-8'));
+      if (obj && obj.data && obj.ts) {
+        ctfCache.postos = obj.data;
+        ctfCache.postosTs = obj.ts;
+        const idade = Math.round((Date.now() - obj.ts) / 60000);
+        log.info('CTF Cache', `Postos restaurados: ${Object.keys(obj.data).length} (idade ${idade} min)`);
+      }
+    }
+    if (fs.existsSync(CTF_PRECOS_DISK)) {
+      const obj = JSON.parse(fs.readFileSync(CTF_PRECOS_DISK, 'utf-8'));
+      if (obj && obj.data && obj.ts) {
+        ctfCache.precos = obj.data;
+        ctfCache.precosTs = obj.ts;
+        const idade = Math.round((Date.now() - obj.ts) / 60000);
+        log.info('CTF Cache', `Preços restaurados: ${Object.keys(obj.data).length} (idade ${idade} min)`);
+      }
+    }
+  } catch (e) {
+    log.warn('CTF Cache', `Falha ao restaurar: ${e.message}`);
+  }
 }
 
 async function geocodificarCidade(cidade, uf) {
@@ -1158,7 +1205,65 @@ async function processarFilaGeocodePostos() {
   }
 }
 
-async function ctfSOAPCall(codTemplate, qtd = 9999, ponteiro = 0) {
+const _ENT = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" };
+function decodeXmlEntities(s) {
+  if (!s) return '';
+  // & vem por último (caso contrário decodificações encadeadas se cruzam).
+  return s.replace(/&(lt|gt|quot|apos|amp);/g, (_, n) => _ENT[n]);
+}
+
+// Extrai linhas SOAP do CTF SEM xml2js. O conteúdo entre
+// <RecuperarCopiaResult>...</RecuperarCopiaResult> é XML interno
+// totalmente escapado (cada `<` virou `&lt;`). Em vez de decodificar
+// o blob inteiro (vários MB → várias cópias), fatiamos por linha na
+// forma escapada e decodificamos só o valor de cada campo (curto).
+// Vantagem: pico de memória ~equivale ao tamanho da resposta XML,
+// em vez de 5–10x isso que o xml2js gasta na árvore JS.
+async function ctfFetchRows(codTemplate, rowTag, qtd = 9999, ponteiro = 0) {
+  let xml = await ctfRawSOAP(codTemplate, qtd, ponteiro);
+
+  const startTag = '<RecuperarCopiaResult>';
+  const endTag = '</RecuperarCopiaResult>';
+  const sIdx = xml.indexOf(startTag);
+  const eIdx = sIdx >= 0 ? xml.indexOf(endTag, sIdx + startTag.length) : -1;
+  if (sIdx < 0 || eIdx < 0) {
+    xml = null;
+    throw new Error('CTF: RecuperarCopiaResult não encontrado');
+  }
+  const innerStart = sIdx + startTag.length;
+  const innerEnd = eIdx;
+
+  const openMark = `&lt;${rowTag}&gt;`;
+  const closeMark = `&lt;/${rowTag}&gt;`;
+  // Campo: <FIELD>valor</FIELD> ou self-close <FIELD />. Tudo escapado.
+  const fieldRe = /&lt;([A-Za-z_][A-Za-z_0-9]*)(?:\s+\/&gt;|&gt;([\s\S]*?)&lt;\/\1&gt;)/g;
+
+  const rows = [];
+  let pos = innerStart;
+  while (pos < innerEnd) {
+    const start = xml.indexOf(openMark, pos);
+    if (start < 0 || start >= innerEnd) break;
+    const end = xml.indexOf(closeMark, start + openMark.length);
+    if (end < 0 || end > innerEnd) break;
+
+    const body = xml.slice(start + openMark.length, end);
+    const row = {};
+    let fm;
+    fieldRe.lastIndex = 0;
+    while ((fm = fieldRe.exec(body)) !== null) {
+      // CTF dupla-encoda: SOAP escapa o XML interno que já tinha entidades.
+      // Decodifica em duas passadas — segunda é no-op em valores limpos.
+      row[fm[1]] = fm[2] === undefined ? '' : decodeXmlEntities(decodeXmlEntities(fm[2]));
+    }
+    rows.push(row);
+    pos = end + closeMark.length;
+  }
+  xml = null;
+  return rows;
+}
+
+// Wrapper antigo (mantido p/ retrocompatibilidade; nenhuma rota hot path usa).
+async function ctfRawSOAP(codTemplate, qtd, ponteiro) {
   const envelope = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Header>
@@ -1177,7 +1282,6 @@ async function ctfSOAPCall(codTemplate, qtd = 9999, ponteiro = 0) {
     </RecuperarCopia>
   </soap:Body>
 </soap:Envelope>`;
-
   const resp = await fetch(CTF_URL_SOAP, {
     method: 'POST',
     headers: {
@@ -1188,25 +1292,7 @@ async function ctfSOAPCall(codTemplate, qtd = 9999, ponteiro = 0) {
     agent: new (require('https').Agent)({ rejectUnauthorized: false }),
   });
   if (!resp.ok) throw new Error(`CTF SOAP retornou ${resp.status}`);
-
-  let xml = await resp.text();
-  const match = xml.match(/<RecuperarCopiaResult>([\s\S]*?)<\/RecuperarCopiaResult>/);
-  // Libera o envelope completo o quanto antes — para T9/T149 são vários MB.
-  xml = null;
-  if (!match) throw new Error('CTF: RecuperarCopiaResult não encontrado');
-
-  // Decodifica entidades em uma única passada (evita 5 strings intermediárias).
-  const ENT = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" };
-  let innerXml = match[1].replace(/&(lt|gt|amp|quot|apos);/g, (_, n) => ENT[n]);
-
-  const resultado = await parseStringPromise(innerXml, {
-    explicitArray: false,
-    ignoreAttrs: true,
-    trim: true,
-    emptyTag: null,
-  });
-  innerXml = null;
-  return resultado;
+  return resp.text();
 }
 
 async function carregarPostosCTF() {
@@ -1214,12 +1300,10 @@ async function carregarPostosCTF() {
   if (ctfCache.postos && agora - ctfCache.postosTs < CTF_TTL_POSTOS) return ctfCache.postos;
 
   log.info('CTF', 'Carregando postos credenciados (Template 11)...');
-  const data = await ctfSOAP(11);
-  const rows = paraArray(data?.POSTOS?.POSTOSRow || []);
+  const rows = await ctfFetchRows(11, 'POSTOSRow');
 
   const strVal = (v) => {
-    if (!v) return '';
-    if (Array.isArray(v)) return String(v[0] || '').trim();
+    if (v === undefined || v === null) return '';
     return String(v).trim();
   };
 
@@ -1249,16 +1333,28 @@ async function carregarPostosCTF() {
       enderecoSimples: enderecoBase,
       bairro: strVal(r.BAIRRO),
       cidade: strVal(r.CIDADE).toUpperCase(),
-      uf: strVal(Array.isArray(r.UF) ? r.UF[0] : r.UF).toUpperCase().slice(0, 2),
+      uf: strVal(r.UF).toUpperCase().slice(0, 2),
       cep: strVal(r.CEP).replace(/\D/g, '').slice(0, 8),
     };
   }
 
   ctfCache.postos = mapa;
   ctfCache.postosTs = agora;
+  salvarCtfDisco('postos');
   log.info('CTF', `${Object.keys(mapa).length} postos ativos carregados`);
+
+  // Primeira vez que carregamos postos nesta sessão? Dispara o background
+  // de geocoding (IBGE seed + jitter inicial + fila Nominatim). Não bloqueia.
+  if (!_geocodeBgIniciado) {
+    _geocodeBgIniciado = true;
+    setImmediate(() => {
+      iniciarGeocodeBackground().catch((e) => log.error('CTF Geocode', e.message));
+    });
+  }
   return mapa;
 }
+
+let _geocodeBgIniciado = false;
 
 // Parse data dd/MM/yyyy HH:mm:ss → timestamp (ms). Retorna 0 em falha.
 function parseDtBR(s) {
@@ -1347,17 +1443,16 @@ function classificarCombustivel(codigo, nomeFallback = '') {
 // Stream: invoca onPage(rows) por página e DESCARTA a página em seguida.
 // Mantemos só o agregado relevante (mapa de preços por posto), nunca os
 // ~40k registros brutos vivos no heap ao mesmo tempo.
-async function carregarAbastecimentosCTF(onPage, maxRegs = 25000) {
+async function carregarAbastecimentosCTF(onPage, maxRegs = 20000) {
   let ponteiro = 0;
   let total = 0;
-  for (let pagina = 0; pagina < 20 && total < maxRegs; pagina++) {
-    const data = await ctfSOAP(9, 9999, ponteiro);
-    let rows = paraArray(data?.ABASTECIMENTOS?.ABASTECIMENTOSRow || []);
+  for (let pagina = 0; pagina < 15 && total < maxRegs; pagina++) {
+    let rows = await ctfFetchRows(9, 'ABASTECIMENTOSRow', 9999, ponteiro);
     if (rows.length === 0) break;
 
     let maxP = ponteiro;
     for (const r of rows) {
-      const p = parseInt(Array.isArray(r.PONTEIRO) ? r.PONTEIRO[0] : r.PONTEIRO);
+      const p = parseInt(r.PONTEIRO);
       if (!isNaN(p) && p > maxP) maxP = p;
     }
 
@@ -1369,10 +1464,6 @@ async function carregarAbastecimentosCTF(onPage, maxRegs = 25000) {
     ponteiro = maxP;
   }
   return total;
-}
-
-async function ctfSOAP(codTemplate, qtd = 9999, ponteiro = 0) {
-  return ctfSOAPCall(codTemplate, qtd, ponteiro);
 }
 
 let precosCTFInflight = null;
@@ -1440,9 +1531,7 @@ async function _carregarPrecosCTF() {
 
   // ── Template 149: preço bomba publicado pelo posto (sem acordo) ──
   log.info('CTF', 'Carregando preços bomba (Template 149)...');
-  let dataT149 = await ctfSOAP(149);
-  let rowsT149 = paraArray(dataT149?.Preco_Bomba?.Preco_BombaRow || []);
-  dataT149 = null; // libera o wrapper assim que extraímos as linhas
+  let rowsT149 = await ctfFetchRows(149, 'Preco_BombaRow');
   const totalT149 = rowsT149.length;
   let usadosT149 = 0;
 
@@ -1521,6 +1610,7 @@ async function _carregarPrecosCTF() {
 
   ctfCache.precos = mapa;
   ctfCache.precosTs = agora;
+  salvarCtfDisco('precos');
   log.info('CTF', `Preços consolidados: ${Object.keys(mapa).length} postos | T9=${totalT9} (${totalAcordo} preços c/ acordo) | T149=${totalT149} (${usadosT149} preços bomba)`);
 
   return mapa;
@@ -1894,11 +1984,22 @@ if (fs.existsSync(path.join(distPath, 'index.html'))) {
 const server = app.listen(PORT, () => {
   log.info('Server', `Painel de Frotas rodando em http://localhost:${PORT}`);
   carregarGeocodeCache();
+  carregarCtfDisco();
   iniciarPolling()
     .then(() => {
       if (CTF_USER && CTF_PASS) {
         log.info('CTF', `Credenciais configuradas (${CTF_USER})`);
-        setTimeout(() => iniciarGeocodeBackground().catch((e) => log.error('CTF Geocode', e.message)), 5000);
+        // Render Free tem 512MB. Pré-carregar CTF no boot (Templates 11+9+149
+        // em sequência) pode estourar memória antes do serviço estabilizar.
+        // Lazy-load: a primeira request /api/postos dispara a carga. O
+        // background só agenda geocoding *depois* que postos estiverem em
+        // cache (seja vindo do disco, seja após primeira request).
+        if (ctfCache.postos) {
+          _geocodeBgIniciado = true;
+          setTimeout(() => iniciarGeocodeBackground().catch((e) => log.error('CTF Geocode', e.message)), 10000);
+        } else {
+          log.info('CTF', 'Sem cache em disco — postos serão carregados na primeira request /api/postos');
+        }
       } else {
         log.warn('CTF', 'CTF_USER/CTF_PASS não configurados — postos CTF desabilitados');
       }

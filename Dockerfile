@@ -56,8 +56,10 @@ RUN chown -R appuser:appgroup /app
 # Variáveis sensíveis vêm pelo --env-file ou docker-compose
 ENV NODE_ENV=production
 ENV PORT=3001
-# Heap maior evita OOM ao carregar preços CTF (templates 9/149 são grandes)
-ENV NODE_OPTIONS=--max-old-space-size=460
+# Render Free = 512MB hard. Heap V8 + overhead nativo + sockets + buffers
+# tem que CABER nesse teto. 320MB de heap deixa ~180MB pro resto — confortável.
+# Sem essa flag, o auto-heap do Node 22 chuta ~410MB e estoura no pico.
+ENV NODE_OPTIONS=--max-old-space-size=320
 
 # Porta exposta
 EXPOSE 3001
